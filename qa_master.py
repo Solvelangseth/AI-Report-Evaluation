@@ -1,6 +1,6 @@
 """
 QA Master Module
-Performs rule-based and LLM-based quality assurance on reports.
+Performs rule-based and LLM-based quality assurance on uploaded reports.
 """
 
 import os
@@ -13,17 +13,16 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from qa_rules import QABaseline
-from db_setup import init_db, Report, QAResult, QAIssue
+from db_setup import init_db, get_session, Report, QAResult, QAIssue
 
 # Load environment variables
 load_dotenv()
 
 class QAEvaluator:
-    """Master QA evaluation system."""
+    """Master QA evaluation system for uploaded reports."""
     
     def __init__(self):
         self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.reports_dir = Path("data/reports")
         self.qa_results_dir = Path("data/qa_results")
         self.combined_dir = self.qa_results_dir / "combined"
         self.llm_dir = self.qa_results_dir / "llm"
@@ -33,24 +32,8 @@ class QAEvaluator:
         for dir_path in [self.combined_dir, self.llm_dir, self.rules_dir]:
             dir_path.mkdir(parents=True, exist_ok=True)
         
-        # Track evaluated reports
-        self.evaluated_file = Path("data/qa_master_evaluated.json")
-        self.evaluated = self._load_evaluated()
-        
-        # Initialize database
-        self.session = init_db()
-    
-    def _load_evaluated(self) -> set:
-        """Load set of already evaluated report filenames."""
-        if self.evaluated_file.exists():
-            with open(self.evaluated_file, 'r') as f:
-                return set(json.load(f))
-        return set()
-    
-    def _save_evaluated(self) -> None:
-        """Save set of evaluated report filenames."""
-        with open(self.evaluated_file, 'w') as f:
-            json.dump(list(self.evaluated), f)
+        # Initialize database session
+        self.session = get_session()
     
     def _extract_sections(self, text: str) -> Dict[str, str]:
         """Extracts report sections based on Markdown-style headers."""
@@ -232,15 +215,11 @@ class QAEvaluator:
             print(f"Error parsing LLM response: {e}")
             return "unknown", []
     
-    def evaluate_report(self, report_file: Path) -> Dict[str, Any]:
-        """Evaluates a single report using both methods."""
+    def evaluate_report(self, report: Report) -> Dict[str, Any]:
+        """Evaluates a single uploaded report using both methods."""
         
-        # Load report
-        with open(report_file, 'r', encoding='utf-8') as f:
-            report_data = json.load(f)
-        
-        report_text = report_data["report_text"]
-        baseline = report_data.get("qa_baseline", QABaseline.get_baseline())
+        report_text = report.report_text
+        baseline = QABaseline.get_baseline()
         
         # Run both QA methods
         rule_quality, rule_issues = self.rule_based_qa(report_text)
@@ -260,8 +239,9 @@ class QAEvaluator:
         
         # Create result
         result = {
-            "file": report_file.name,
-            "expected_status": report_data["status"],
+            "file": report.filename,
+            "report_id": report.id,
+            "expected_status": report.status,  # For uploaded files, this is 'pending'
             "rule_quality": rule_quality,
             "llm_quality": llm_quality,
             "final_quality": final_quality,
@@ -285,44 +265,39 @@ class QAEvaluator:
         
         return merged
     
-    def save_to_database(self, report_file: Path, qa_result: Dict) -> None:
-        """Save report and QA results to database."""
+    def save_to_database(self, report: Report, qa_result: Dict) -> None:
+        """Save QA results to database."""
         from sqlalchemy.exc import IntegrityError
 
-        with open(report_file, 'r', encoding='utf-8') as f:
-            report_data = json.load(f)
-
         try:
-            # Check if the report already exists
-            existing_report = (
-                self.session.query(Report)
-                .filter_by(filename=report_file.name)
+            # Check if QA result already exists for this report
+            existing_qa = (
+                self.session.query(QAResult)
+                .filter_by(report_id=report.id)
                 .first()
             )
 
-            if existing_report:
-                db_report = existing_report
+            if existing_qa:
+                # Update existing QA result
+                existing_qa.rule_quality = qa_result["rule_quality"]
+                existing_qa.llm_quality = qa_result["llm_quality"]
+                existing_qa.final_quality = qa_result["final_quality"]
+                existing_qa.evaluated_at = datetime.utcnow()
+                
+                # Delete old issues
+                self.session.query(QAIssue).filter_by(qa_result_id=existing_qa.id).delete()
+                db_qa_result = existing_qa
             else:
-                db_report = Report(
-                    filename=report_file.name,
-                    topic=report_data["topic"],
-                    status=report_data["status"],
-                    report_text=report_data["report_text"],
-                    generator_version=report_data["generator_version"],
-                    model=report_data["model"]
+                # Create new QAResult entry
+                db_qa_result = QAResult(
+                    report_id=report.id,
+                    rule_quality=qa_result["rule_quality"],
+                    llm_quality=qa_result["llm_quality"],
+                    final_quality=qa_result["final_quality"],
+                    expected_status=qa_result["expected_status"]
                 )
-                self.session.add(db_report)
-                self.session.flush()
-
-            # Create new QAResult entry
-            db_qa_result = QAResult(
-                report_id=db_report.id,
-                rule_quality=qa_result["rule_quality"],
-                llm_quality=qa_result["llm_quality"],
-                final_quality=qa_result["final_quality"],
-                expected_status=qa_result["expected_status"]
-            )
-            self.session.add(db_qa_result)
+                self.session.add(db_qa_result)
+            
             self.session.flush()
 
             # Create QAIssue entries
@@ -334,63 +309,67 @@ class QAEvaluator:
                     comment=issue["comment"]
                 )
                 self.session.add(db_issue)
-
+            
+            # Update report status based on QA result
+            report.status = qa_result["final_quality"]
+            
             self.session.commit()
 
         except IntegrityError:
             self.session.rollback()
-            print(f"Skipped duplicate report: {report_file.name}")
+            print(f"Error saving QA result for report: {report.filename}")
+        except Exception as e:
+            self.session.rollback()
+            print(f"Unexpected error: {e}")
 
     
-    def run_evaluation(self) -> None:
-        """Run QA evaluation on all unevaluated reports."""
+    def run_evaluation_on_uploads(self) -> None:
+        """Run QA evaluation on all unevaluated uploaded reports."""
         
-        # Find all report files
-        report_files = list(self.reports_dir.glob("report_*.json"))
+        # Find all uploaded reports that haven't been evaluated
+        unevaluated_reports = (
+            self.session.query(Report)
+            .outerjoin(QAResult)
+            .filter(QAResult.id == None)
+            .filter(Report.model == 'user_upload')
+            .all()
+        )
         
-        # Filter out already evaluated
-        new_reports = [f for f in report_files if f.name not in self.evaluated]
-        
-        if not new_reports:
-            print("No new reports to evaluate")
+        if not unevaluated_reports:
+            print("No unevaluated uploaded reports found")
             return
         
-        print(f"Evaluating {len(new_reports)} reports...")
+        print(f"Evaluating {len(unevaluated_reports)} uploaded reports...")
         
-        for report_file in new_reports:
+        for report in unevaluated_reports:
             try:
-                print(f"Evaluating {report_file.name}...")
+                print(f"Evaluating {report.filename}...")
                 
                 # Evaluate report
-                result = self.evaluate_report(report_file)
+                result = self.evaluate_report(report)
                 
-                # Save to JSON
-                result_file = self.combined_dir / f"qa_{report_file.stem}.json"
+                # Save to JSON (optional)
+                result_file = self.combined_dir / f"qa_upload_{report.id}_{report.filename.split('.')[0]}.json"
                 with open(result_file, 'w', encoding='utf-8') as f:
                     json.dump(result, f, ensure_ascii=False, indent=2)
                 
                 # Save to database
-                self.save_to_database(report_file, result)
-                
-                # Mark as evaluated
-                self.evaluated.add(report_file.name)
+                self.save_to_database(report, result)
                 
                 # Print summary
-                print(f"  Expected: {result['expected_status']}")
+                print(f"  File: {report.filename}")
                 print(f"  Final QA: {result['final_quality']}")
                 print(f"  Issues found: {len(result['issues'])}")
                 
             except Exception as e:
-                print(f"Error evaluating {report_file.name}: {e}")
+                print(f"Error evaluating {report.filename}: {e}")
                 continue
         
-        # Save evaluated list
-        self._save_evaluated()
-        print(f"Evaluation complete. Results saved to {self.combined_dir} and database")
+        print(f"Evaluation complete. Results saved to database")
 
 
 def main():
-    """Main entry point for QA evaluation."""
+    """Main entry point for QA evaluation of uploaded files."""
     
     # Check for API key
     if not os.getenv("OPENAI_API_KEY"):
@@ -398,7 +377,7 @@ def main():
         return
     
     evaluator = QAEvaluator()
-    evaluator.run_evaluation()
+    evaluator.run_evaluation_on_uploads()
 
 
 if __name__ == "__main__":

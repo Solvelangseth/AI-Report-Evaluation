@@ -5,9 +5,14 @@
 {% block content %}
 <div class="animate-slide-in">
     <!-- Header -->
-    <div class="mb-8">
-        <h1 class="text-3xl font-bold text-gray-900">Reports</h1>
-        <p class="text-gray-600 mt-2">All generated inspection reports with QA status</p>
+    <div class="mb-8 flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">Reports</h1>
+            <p class="text-gray-600 mt-2">All inspection reports with QA evaluation status</p>
+        </div>
+        <a href="/upload" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+            <i class="fas fa-plus mr-2"></i>Upload New Report
+        </a>
     </div>
     
     <!-- Filters -->
@@ -20,7 +25,16 @@
                     <option value="clean">Clean</option>
                     <option value="minor_error">Minor Errors</option>
                     <option value="major_error">Major Errors</option>
-                    <option value="pending">Pending</option>
+                    <option value="pending">Pending Evaluation</option>
+                </select>
+            </div>
+            
+            <div class="flex items-center space-x-2">
+                <label class="text-sm font-medium text-gray-700">Source:</label>
+                <select id="sourceFilter" onchange="filterReports()" class="border-gray-300 rounded-md text-sm">
+                    <option value="">All</option>
+                    <option value="Upload">Uploaded</option>
+                    <option value="Generated">Generated</option>
                 </select>
             </div>
             
@@ -44,7 +58,7 @@
                         Topic
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Expected Status
+                        Source
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         QA Status
@@ -53,7 +67,7 @@
                         Issues
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Created
+                        Date
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Actions
@@ -62,7 +76,10 @@
             </thead>
             <tbody class="bg-white divide-y divide-gray-200" id="reportsTableBody">
                 {% for report in reports %}
-                <tr class="report-row hover:bg-gray-50" data-status="{{ report.qa_status }}" data-topic="{{ report.topic|lower }}">
+                <tr class="report-row hover:bg-gray-50" 
+                    data-status="{{ report.qa_status }}" 
+                    data-topic="{{ report.topic|lower }}"
+                    data-source="{{ report.source }}">
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         #{{ report.id }}
                     </td>
@@ -70,8 +87,14 @@
                         {{ report.topic }}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap">
-                        <span class="status-badge status-{{ report.status }}">
-                            {{ report.status.replace('_', ' ').title() }}
+                        <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium
+                            {% if report.source == 'Upload' %}
+                                bg-blue-100 text-blue-800
+                            {% else %}
+                                bg-gray-100 text-gray-800
+                            {% endif %}">
+                            <i class="fas {% if report.source == 'Upload' %}fa-upload{% else %}fa-robot{% endif %} mr-1"></i>
+                            {{ report.source }}
                         </span>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap">
@@ -84,6 +107,11 @@
                             <span class="text-red-600 font-medium">
                                 <i class="fas fa-exclamation-triangle mr-1"></i>
                                 {{ report.issue_count }} issues
+                            </span>
+                        {% elif report.qa_status == 'pending' %}
+                            <span class="text-yellow-600">
+                                <i class="fas fa-clock mr-1"></i>
+                                Awaiting evaluation
                             </span>
                         {% else %}
                             <span class="text-green-600">
@@ -108,9 +136,9 @@
                     <td colspan="7" class="px-6 py-12 text-center text-gray-500">
                         <i class="fas fa-inbox text-4xl mb-4"></i>
                         <p>No reports found</p>
-                        <button onclick="generateReports()" class="mt-4 text-blue-600 hover:text-blue-800">
-                            Generate some reports
-                        </button>
+                        <a href="/upload" class="mt-4 text-blue-600 hover:text-blue-800 inline-block">
+                            <i class="fas fa-upload mr-2"></i>Upload your first report
+                        </a>
                     </td>
                 </tr>
                 {% endif %}
@@ -119,14 +147,21 @@
     </div>
     
     <!-- Results count -->
-    <div class="mt-4 text-sm text-gray-600">
-        Showing <span id="visibleCount">{{ reports|length }}</span> of {{ reports|length }} reports
+    <div class="mt-4 text-sm text-gray-600 flex justify-between items-center">
+        <span>Showing <span id="visibleCount">{{ reports|length }}</span> of {{ reports|length }} reports</span>
+        {% if reports|selectattr('qa_status', 'equalto', 'pending')|list|length > 0 %}
+        <button onclick="evaluateReports()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+            <i class="fas fa-search mr-1"></i> 
+            Evaluate {{ reports|selectattr('qa_status', 'equalto', 'pending')|list|length }} Pending Reports
+        </button>
+        {% endif %}
     </div>
 </div>
 
 <script>
     function filterReports() {
         const statusFilter = document.getElementById('statusFilter').value.toLowerCase();
+        const sourceFilter = document.getElementById('sourceFilter').value;
         const searchFilter = document.getElementById('searchInput').value.toLowerCase();
         const rows = document.querySelectorAll('.report-row');
         let visibleCount = 0;
@@ -134,11 +169,13 @@
         rows.forEach(row => {
             const status = row.dataset.status;
             const topic = row.dataset.topic;
+            const source = row.dataset.source;
             
             const matchesStatus = !statusFilter || status === statusFilter;
+            const matchesSource = !sourceFilter || source === sourceFilter;
             const matchesSearch = !searchFilter || topic.includes(searchFilter);
             
-            if (matchesStatus && matchesSearch) {
+            if (matchesStatus && matchesSource && matchesSearch) {
                 row.style.display = '';
                 visibleCount++;
             } else {

@@ -71,33 +71,47 @@
             animation: slideIn 0.3s ease-out;
         }
         
-        /* Status badges (replacing @apply) */
+        /* Status badges */
         .status-badge {
-            padding: 0.25rem 0.5rem; /* px-2 py-1 */
-            border-radius: 9999px;   /* rounded-full */
-            font-size: 0.75rem;      /* text-xs */
-            font-weight: 600;        /* font-semibold */
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
             display: inline-block;
         }
 
         .status-clean {
-            background-color: rgb(220 252 231); /* bg-green-100 */
-            color: rgb(22 101 52);              /* text-green-800 */
+            background-color: rgb(220 252 231);
+            color: rgb(22 101 52);
         }
 
         .status-minor_error {
-            background-color: rgb(254 249 195); /* bg-yellow-100 */
-            color: rgb(133 77 14);              /* text-yellow-800 */
+            background-color: rgb(254 249 195);
+            color: rgb(133 77 14);
         }
 
         .status-major_error {
-            background-color: rgb(254 226 226); /* bg-red-100 */
-            color: rgb(153 27 27);              /* text-red-800 */
+            background-color: rgb(254 226 226);
+            color: rgb(153 27 27);
         }
 
         .status-pending {
-            background-color: rgb(243 244 246); /* bg-gray-100 */
-            color: rgb(31 41 55);               /* text-gray-800 */
+            background-color: rgb(243 244 246);
+            color: rgb(31 41 55);
+        }
+        
+        /* Upload area styles */
+        .upload-area {
+            border: 2px dashed #cbd5e0;
+            border-radius: 0.5rem;
+            padding: 2rem;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        
+        .upload-area.dragover {
+            border-color: #3b82f6;
+            background-color: #eff6ff;
         }
     </style>
 </head>
@@ -119,15 +133,15 @@
                         <a href="/reports" class="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium">
                             <i class="fas fa-file-alt mr-1"></i> Reports
                         </a>
+                        <a href="/upload" class="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium">
+                            <i class="fas fa-upload mr-1"></i> Upload
+                        </a>
                     </div>
                 </div>
                 
                 <div class="flex items-center space-x-3">
-                    <button onclick="generateReports()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
-                        <i class="fas fa-plus-circle mr-1"></i> Generate Reports
-                    </button>
                     <button onclick="evaluateReports()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium">
-                        <i class="fas fa-search mr-1"></i> Run QA
+                        <i class="fas fa-search mr-1"></i> Evaluate Reports
                     </button>
                 </div>
             </div>
@@ -148,18 +162,23 @@
     <div id="tooltip" class="tooltip"></div>
     
     <script>
-        // Toast notification function
-        function showToast(message, type = 'info') {
+        // Toast notification function (made global)
+        window.showToast = function(message, type = 'info') {
             const toast = document.getElementById('toast');
             const messageEl = document.getElementById('toast-message');
             
             messageEl.textContent = message;
             
+            // Reset classes
+            toast.className = 'fixed bottom-4 right-4 text-white px-6 py-3 rounded-lg shadow-lg transform translate-y-full transition-transform duration-300';
+            
             // Set background color based on type
             if (type === 'success') {
-                toast.className = toast.className.replace('bg-gray-800', 'bg-green-600');
+                toast.classList.add('bg-green-600');
             } else if (type === 'error') {
-                toast.className = toast.className.replace('bg-gray-800', 'bg-red-600');
+                toast.classList.add('bg-red-600');
+            } else {
+                toast.classList.add('bg-gray-800');
             }
             
             // Show toast
@@ -171,35 +190,9 @@
             }, 3000);
         }
         
-        // Generate reports function
-        async function generateReports() {
-            const count = prompt('How many reports to generate?', '5');
-            if (!count) return;
-            
-            showToast('Generating reports...', 'info');
-            
-            try {
-                const response = await fetch('/generate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ count: parseInt(count) })
-                });
-                
-                const data = await response.json();
-                if (data.success) {
-                    showToast(data.message, 'success');
-                    setTimeout(() => location.reload(), 2000);
-                } else {
-                    showToast(data.message, 'error');
-                }
-            } catch {
-                showToast('Error generating reports', 'error');
-            }
-        }
-        
         // Evaluate reports function
         async function evaluateReports() {
-            showToast('Running QA evaluation...', 'info');
+            showToast('Running QA evaluation on uploaded reports...', 'info');
             
             try {
                 const response = await fetch('/evaluate', {

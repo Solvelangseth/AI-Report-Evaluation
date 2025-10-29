@@ -1,13 +1,15 @@
 """
 Flask Web Application for Inspection Report QA System
+Modified to support file uploads instead of generation
 """
 
 import os
 import json
 from pathlib import Path
 from datetime import datetime
-from flask import Flask, render_template, jsonify, request, redirect, url_for
+from flask import Flask, render_template, jsonify, request, redirect, url_for, flash
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker
 import re
@@ -16,12 +18,17 @@ from markupsafe import Markup
 
 # Import our modules
 from db_setup import Report, QAResult, QAIssue, Base
-from generate_reports import ReportGenerator
 from qa_master import QAEvaluator
 
 app = Flask(__name__)
 CORS(app)
 app.config['SECRET_KEY'] = 'your-secret-key-here-change-in-production'
+app.config['UPLOAD_FOLDER'] = 'data/uploads'
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx', 'json'}
+
+# Create upload folder if it doesn't exist
+Path(app.config['UPLOAD_FOLDER']).mkdir(parents=True, exist_ok=True)
 
 # Database setup
 engine = create_engine('sqlite:///data/reports.db')
@@ -31,6 +38,11 @@ DBSession = sessionmaker(bind=engine)
 def get_db():
     """Get database session."""
     return DBSession()
+
+def allowed_file(filename):
+    """Check if file extension is allowed."""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route('/')
 def index():
@@ -55,18 +67,128 @@ def index():
         else:
             accuracy = 0
         
+        # Get pending reports (uploaded but not evaluated)
+        pending_count = db.query(Report).outerjoin(QAResult).filter(QAResult.id == None).count()
+        
         stats = {
             'total_reports': total_reports,
             'total_evaluated': total_evaluated,
             'clean_count': clean_count,
             'minor_count': minor_count,
             'major_count': major_count,
-            'accuracy': accuracy
+            'accuracy': accuracy,
+            'pending_count': pending_count
         }
         
         return render_template('index.html', stats=stats)
     finally:
         db.close()
+
+@app.route('/upload', methods=['GET', 'POST'])
+def upload_file():
+    """Handle file upload."""
+    if request.method == 'POST':
+        # Check if file is present
+        if 'file' not in request.files:
+            flash('No file selected')
+            return redirect(request.url)
+        
+        file = request.files['file']
+        
+        # Check if file is selected
+        if file.filename == '':
+            flash('No file selected')
+            return redirect(request.url)
+        
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Add timestamp to filename to avoid collisions
+            base_name = filename.rsplit('.', 1)[0]
+            extension = filename.rsplit('.', 1)[1]
+            unique_filename = f"{base_name}_{timestamp}.{extension}"
+            
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            file.save(filepath)
+            
+            # Extract text content based on file type
+            try:
+                report_text = extract_text_from_file(filepath, extension)
+                topic = request.form.get('topic', base_name)
+                
+                # Save to database
+                db = get_db()
+                try:
+                    report = Report(
+                        filename=unique_filename,
+                        topic=topic,
+                        status='pending',  # Will be determined by QA
+                        report_text=report_text,
+                        generator_version='upload_v1',
+                        model='user_upload',
+                        created_at=datetime.utcnow()
+                    )
+                    db.add(report)
+                    db.commit()
+                    
+                    return jsonify({
+                        'success': True,
+                        'message': f'File "{filename}" uploaded successfully',
+                        'report_id': report.id
+                    })
+                finally:
+                    db.close()
+                    
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'message': f'Error processing file: {str(e)}'
+                }), 400
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid file type. Allowed types: txt, pdf, doc, docx, json'
+            }), 400
+    
+    # GET request - show upload form
+    return render_template('upload.html')
+
+def extract_text_from_file(filepath, extension):
+    """Extract text content from uploaded file."""
+    if extension == 'txt':
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return f.read()
+    elif extension == 'json':
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            # Try to extract report_text field or stringify the whole JSON
+            if isinstance(data, dict) and 'report_text' in data:
+                return data['report_text']
+            else:
+                return json.dumps(data, ensure_ascii=False, indent=2)
+    elif extension == 'pdf':
+        # You'll need to install PyPDF2 or pdfplumber for this
+        try:
+            import PyPDF2
+            with open(filepath, 'rb') as f:
+                reader = PyPDF2.PdfReader(f)
+                text = ""
+                for page in reader.pages:
+                    text += page.extract_text() + "\n"
+                return text
+        except ImportError:
+            return "PDF support requires PyPDF2 library. Please install it."
+    elif extension in ['doc', 'docx']:
+        # You'll need python-docx for this
+        try:
+            from docx import Document
+            doc = Document(filepath)
+            text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+            return text
+        except ImportError:
+            return "Word document support requires python-docx library. Please install it."
+    else:
+        return "Unsupported file type"
 
 @app.route('/reports')
 def reports_list():
@@ -87,7 +209,8 @@ def reports_list():
                 'status': report.status,
                 'created_at': report.created_at.strftime('%Y-%m-%d %H:%M'),
                 'qa_status': qa_result.final_quality if qa_result else 'pending',
-                'issue_count': len(qa_result.issues) if qa_result else 0
+                'issue_count': len(qa_result.issues) if qa_result else 0,
+                'source': 'Upload' if report.model == 'user_upload' else 'Generated'
             })
         
         return render_template('reports.html', reports=reports_data)
@@ -143,30 +266,13 @@ def report_detail(report_id):
     finally:
         db.close()
 
-@app.route('/generate', methods=['POST'])
-def generate_reports():
-    """Generate new reports via AJAX."""
-    try:
-        count = int(request.json.get('count', 5))
-        generator = ReportGenerator()
-        generator.batch_generate(count=count)
-        
-        return jsonify({
-            'success': True,
-            'message': f'Successfully generated {count} reports'
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': str(e)
-        }), 500
-
 @app.route('/evaluate', methods=['POST'])
 def evaluate_reports():
     """Run QA evaluation on unevaluated reports."""
     try:
         evaluator = QAEvaluator()
-        evaluator.run_evaluation()
+        # Modified to evaluate uploaded files
+        evaluator.run_evaluation_on_uploads()
         
         return jsonify({
             'success': True,
@@ -211,7 +317,8 @@ def get_stats():
             'total_evaluated': db.query(QAResult).count(),
             'clean': db.query(QAResult).filter(QAResult.final_quality == 'clean').count(),
             'minor_errors': db.query(QAResult).filter(QAResult.final_quality == 'minor_error').count(),
-            'major_errors': db.query(QAResult).filter(QAResult.final_quality == 'major_error').count()
+            'major_errors': db.query(QAResult).filter(QAResult.final_quality == 'major_error').count(),
+            'pending': db.query(Report).outerjoin(QAResult).filter(QAResult.id == None).count()
         }
         
         # Calculate accuracy
@@ -261,7 +368,7 @@ def highlight_issues(text, issues):
         for start, end, replacement in replacements:
             text = text[:start] + replacement + text[end:]
 
-    # Now convert Markdown to HTML — and keep inserted <span> tags intact
+    # Now convert Markdown to HTML
     html = markdown.markdown(
         text,
         extensions=["extra", "sane_lists"],
@@ -271,12 +378,13 @@ def highlight_issues(text, issues):
         }
     )
 
-    return Markup(html)  # Mark safe so Jinja doesn't escape <span>
+    return Markup(html)
 
 
 if __name__ == '__main__':
     # Ensure data directory exists
     Path('data').mkdir(exist_ok=True)
+    Path('data/uploads').mkdir(exist_ok=True)
     
     # Initialize database if needed
     Base.metadata.create_all(engine)

@@ -1,0 +1,378 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Report - Inspection Report QA{% endblock %}
+
+{% block content %}
+<div class="animate-slide-in">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">Upload Report</h1>
+        <p class="text-gray-600 mt-2">Upload your inspection report for QA analysis</p>
+    </div>
+
+    <!-- Upload Form -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <form id="uploadForm" enctype="multipart/form-data" class="space-y-6">
+            <!-- Topic Input -->
+            <div>
+                <label for="topic" class="block text-sm font-medium text-gray-700 mb-2">
+                    Report Topic (Optional)
+                </label>
+                <input type="text" id="topic" name="topic" 
+                       placeholder="e.g., Water damage in bathroom" 
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+            </div>
+
+            <!-- File Upload Area -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Select File
+                </label>
+                
+                <!-- Drop Zone -->
+                <div id="dropArea" class="upload-area cursor-pointer">
+                    <div id="dropContent">
+                        <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-3"></i>
+                        <p class="text-gray-600 mb-2">Drag and drop your file here</p>
+                        <p class="text-gray-500 text-sm">or</p>
+                        <button type="button" id="browseBtn" class="mt-2 bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded-md text-sm">
+                            Browse Files
+                        </button>
+                        <p class="text-xs text-gray-400 mt-3">Supported: TXT, PDF, DOC, DOCX, JSON (max 16MB)</p>
+                    </div>
+                    
+                    <!-- File Display (hidden initially) -->
+                    <div id="fileDisplay" class="hidden">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center">
+                                <i id="fileIcon" class="fas fa-file-alt text-blue-600 text-3xl mr-3"></i>
+                                <div>
+                                    <p id="fileName" class="font-medium text-gray-900">No file selected</p>
+                                    <p id="fileSize" class="text-sm text-gray-500">0 KB</p>
+                                </div>
+                            </div>
+                            <button type="button" id="removeBtn" class="text-red-500 hover:text-red-700">
+                                <i class="fas fa-times-circle text-xl"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Hidden file input -->
+                <input type="file" id="fileInput" name="file" class="hidden" accept=".txt,.pdf,.doc,.docx,.json">
+            </div>
+
+            <!-- Submit Button (hidden initially) -->
+            <div id="submitSection" class="hidden">
+                <button type="submit" id="submitBtn" class="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-md font-medium transition-colors">
+                    <i class="fas fa-upload mr-2"></i>Submit Report for QA Analysis
+                </button>
+            </div>
+
+            <!-- Upload Status (hidden initially) -->
+            <div id="uploadStatus" class="hidden">
+                <div class="bg-blue-50 border border-blue-200 rounded-md p-4">
+                    <div class="flex items-center">
+                        <i class="fas fa-spinner fa-spin text-blue-600 mr-3"></i>
+                        <span class="text-blue-900">Uploading report...</span>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Instructions -->
+    <div class="mt-6 bg-gray-50 rounded-lg p-6">
+        <h3 class="text-lg font-medium text-gray-900 mb-3">Instructions</h3>
+        <ol class="space-y-2 text-sm text-gray-700">
+            <li><span class="font-medium">1.</span> Enter an optional topic/description for your report</li>
+            <li><span class="font-medium">2.</span> Drag and drop your file or click "Browse Files" to select</li>
+            <li><span class="font-medium">3.</span> Review your file selection</li>
+            <li><span class="font-medium">4.</span> Click "Submit Report" to upload for QA analysis</li>
+        </ol>
+    </div>
+</div>
+
+<style>
+    .upload-area {
+        border: 2px dashed #cbd5e0;
+        border-radius: 0.5rem;
+        padding: 3rem;
+        text-align: center;
+        transition: all 0.3s ease;
+        background-color: #f9fafb;
+    }
+    
+    .upload-area.dragover {
+        border-color: #3b82f6;
+        background-color: #eff6ff;
+        border-style: solid;
+    }
+    
+    .upload-area.has-file {
+        border-color: #10b981;
+        background-color: #f0fdf4;
+        padding: 1.5rem;
+    }
+</style>
+
+<script>
+// Get elements
+const dropArea = document.getElementById('dropArea');
+const dropContent = document.getElementById('dropContent');
+const fileDisplay = document.getElementById('fileDisplay');
+const fileInput = document.getElementById('fileInput');
+const browseBtn = document.getElementById('browseBtn');
+const removeBtn = document.getElementById('removeBtn');
+const submitSection = document.getElementById('submitSection');
+const submitBtn = document.getElementById('submitBtn');
+const uploadStatus = document.getElementById('uploadStatus');
+const uploadForm = document.getElementById('uploadForm');
+
+let selectedFile = null;
+
+// Prevent default drag behaviors on the entire document
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    document.addEventListener(eventName, preventDefaults, false);
+});
+
+function preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+// Handle drag and drop on the drop area
+dropArea.addEventListener('dragenter', handleDragEnter, false);
+dropArea.addEventListener('dragover', handleDragOver, false);
+dropArea.addEventListener('dragleave', handleDragLeave, false);
+dropArea.addEventListener('drop', handleDrop, false);
+
+// Drag counter to handle nested elements
+let dragCounter = 0;
+
+function handleDragEnter(e) {
+    dragCounter++;
+    dropArea.classList.add('dragover');
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+}
+
+function handleDragLeave(e) {
+    dragCounter--;
+    if (dragCounter === 0) {
+        dropArea.classList.remove('dragover');
+    }
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    dragCounter = 0;
+    dropArea.classList.remove('dragover');
+    
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        handleFile(files[0]);
+    }
+}
+
+// Handle browse button click
+browseBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    fileInput.click();
+});
+
+// Handle file input change
+fileInput.addEventListener('change', (e) => {
+    if (e.target.files.length > 0) {
+        handleFile(e.target.files[0]);
+    }
+});
+
+// Handle remove button click
+removeBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    clearFile();
+});
+
+// Handle file selection
+function handleFile(file) {
+    // Validate file type
+    const allowedExtensions = ['.txt', '.pdf', '.doc', '.docx', '.json'];
+    const fileName = file.name.toLowerCase();
+    const fileExtension = fileName.substring(fileName.lastIndexOf('.'));
+    
+    if (!allowedExtensions.includes(fileExtension)) {
+        showToast('Invalid file type. Please upload TXT, PDF, DOC, DOCX, or JSON files.', 'error');
+        return;
+    }
+    
+    // Validate file size (16MB max)
+    if (file.size > 16 * 1024 * 1024) {
+        showToast('File size exceeds 16MB limit', 'error');
+        return;
+    }
+    
+    // Store the file
+    selectedFile = file;
+    fileInput.files = createFileList([file]);
+    
+    // Display file info
+    displayFile(file);
+}
+
+// Create a FileList from an array of files
+function createFileList(files) {
+    const dataTransfer = new DataTransfer();
+    files.forEach(file => dataTransfer.items.add(file));
+    return dataTransfer.files;
+}
+
+// Display selected file
+function displayFile(file) {
+    // Update file display
+    document.getElementById('fileName').textContent = file.name;
+    document.getElementById('fileSize').textContent = formatFileSize(file.size);
+    
+    // Update file icon based on type
+    const extension = file.name.split('.').pop().toLowerCase();
+    const fileIcon = document.getElementById('fileIcon');
+    
+    switch(extension) {
+        case 'pdf':
+            fileIcon.className = 'fas fa-file-pdf text-red-600 text-3xl mr-3';
+            break;
+        case 'doc':
+        case 'docx':
+            fileIcon.className = 'fas fa-file-word text-blue-600 text-3xl mr-3';
+            break;
+        case 'json':
+            fileIcon.className = 'fas fa-file-code text-purple-600 text-3xl mr-3';
+            break;
+        default:
+            fileIcon.className = 'fas fa-file-alt text-gray-600 text-3xl mr-3';
+    }
+    
+    // Show file display, hide drop content
+    dropContent.classList.add('hidden');
+    fileDisplay.classList.remove('hidden');
+    dropArea.classList.add('has-file');
+    
+    // Show submit button
+    submitSection.classList.remove('hidden');
+}
+
+// Clear selected file
+function clearFile() {
+    selectedFile = null;
+    fileInput.value = '';
+    
+    // Hide file display, show drop content
+    fileDisplay.classList.add('hidden');
+    dropContent.classList.remove('hidden');
+    dropArea.classList.remove('has-file');
+    
+    // Hide submit button
+    submitSection.classList.add('hidden');
+}
+
+// Format file size
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+}
+
+// Handle form submission
+uploadForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    if (!selectedFile) {
+        showToast('Please select a file first', 'error');
+        return;
+    }
+    
+    // Hide submit button, show upload status
+    submitSection.classList.add('hidden');
+    uploadStatus.classList.remove('hidden');
+    
+    // Disable form elements
+    fileInput.disabled = true;
+    document.getElementById('topic').disabled = true;
+    
+    try {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('topic', document.getElementById('topic').value || selectedFile.name.split('.')[0]);
+        
+        const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Update upload status to success
+            uploadStatus.innerHTML = `
+                <div class="bg-green-50 border border-green-200 rounded-md p-4">
+                    <div class="flex items-center">
+                        <i class="fas fa-check-circle text-green-600 mr-3"></i>
+                        <span class="text-green-900">Report uploaded successfully! Redirecting...</span>
+                    </div>
+                </div>
+            `;
+            
+            showToast(data.message, 'success');
+            
+            // Redirect after 2 seconds
+            setTimeout(() => {
+                if (data.report_id) {
+                    window.location.href = `/report/${data.report_id}`;
+                } else {
+                    window.location.href = '/reports';
+                }
+            }, 2000);
+        } else {
+            throw new Error(data.message || 'Upload failed');
+        }
+    } catch (error) {
+        // Show error
+        uploadStatus.innerHTML = `
+            <div class="bg-red-50 border border-red-200 rounded-md p-4">
+                <div class="flex items-center">
+                    <i class="fas fa-exclamation-circle text-red-600 mr-3"></i>
+                    <span class="text-red-900">${error.message}</span>
+                </div>
+            </div>
+        `;
+        
+        showToast('Upload failed: ' + error.message, 'error');
+        
+        // Re-enable form after error
+        setTimeout(() => {
+            uploadStatus.classList.add('hidden');
+            submitSection.classList.remove('hidden');
+            fileInput.disabled = false;
+            document.getElementById('topic').disabled = false;
+        }, 3000);
+    }
+});
+
+// Toast function (assuming it exists in base template)
+function showToast(message, type = 'info') {
+    // If the function doesn't exist in the base template, create a simple alert
+    if (typeof window.showToast !== 'function') {
+        alert(message);
+    } else {
+        window.showToast(message, type);
+    }
+}
+</script>
+{% endblock %}
