@@ -1,0 +1,14 @@
+# Ignore data folder
+data/
+
+# Ignore virtual environment
+report_env/
+
+# (optional) Ignore common system and Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.env
+.DS_Store

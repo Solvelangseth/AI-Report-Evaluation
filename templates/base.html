@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Inspection Report QA System{% endblock %}</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Alpine.js for interactivity -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        /* Custom styles for issue highlighting */
+        .issue-highlight {
+            position: relative;
+            cursor: help;
+            border-bottom: 2px dashed;
+            padding-bottom: 1px;
+        }
+        
+        .issue-minor {
+            background-color: rgba(251, 191, 36, 0.2);
+            border-color: rgb(251, 191, 36);
+        }
+        
+        .issue-major {
+            background-color: rgba(239, 68, 68, 0.2);
+            border-color: rgb(239, 68, 68);
+        }
+        
+        .issue-highlight:hover {
+            opacity: 0.8;
+        }
+        
+        /* Tooltip styles */
+        .tooltip {
+            position: absolute;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            max-width: 300px;
+            pointer-events: none;
+            display: none;
+        }
+        
+        .tooltip.show {
+            display: block;
+        }
+        
+        /* Animation */
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .animate-slide-in {
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        /* Status badges (replacing @apply) */
+        .status-badge {
+            padding: 0.25rem 0.5rem; /* px-2 py-1 */
+            border-radius: 9999px;   /* rounded-full */
+            font-size: 0.75rem;      /* text-xs */
+            font-weight: 600;        /* font-semibold */
+            display: inline-block;
+        }
+
+        .status-clean {
+            background-color: rgb(220 252 231); /* bg-green-100 */
+            color: rgb(22 101 52);              /* text-green-800 */
+        }
+
+        .status-minor_error {
+            background-color: rgb(254 249 195); /* bg-yellow-100 */
+            color: rgb(133 77 14);              /* text-yellow-800 */
+        }
+
+        .status-major_error {
+            background-color: rgb(254 226 226); /* bg-red-100 */
+            color: rgb(153 27 27);              /* text-red-800 */
+        }
+
+        .status-pending {
+            background-color: rgb(243 244 246); /* bg-gray-100 */
+            color: rgb(31 41 55);               /* text-gray-800 */
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-lg">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <a href="/" class="flex items-center">
+                        <i class="fas fa-clipboard-check text-blue-600 text-2xl mr-3"></i>
+                        <span class="font-semibold text-xl text-gray-800">Inspection Report QA</span>
+                    </a>
+                    
+                    <div class="ml-10 flex items-baseline space-x-4">
+                        <a href="/" class="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium">
+                            <i class="fas fa-dashboard mr-1"></i> Dashboard
+                        </a>
+                        <a href="/reports" class="text-gray-700 hover:text-blue-600 px-3 py-2 rounded-md text-sm font-medium">
+                            <i class="fas fa-file-alt mr-1"></i> Reports
+                        </a>
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-3">
+                    <button onclick="generateReports()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+                        <i class="fas fa-plus-circle mr-1"></i> Generate Reports
+                    </button>
+                    <button onclick="evaluateReports()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+                        <i class="fas fa-search mr-1"></i> Run QA
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto py-6 px-4">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-4 right-4 bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg transform translate-y-full transition-transform duration-300">
+        <span id="toast-message"></span>
+    </div>
+    
+    <!-- Tooltip element -->
+    <div id="tooltip" class="tooltip"></div>
+    
+    <script>
+        // Toast notification function
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            const messageEl = document.getElementById('toast-message');
+            
+            messageEl.textContent = message;
+            
+            // Set background color based on type
+            if (type === 'success') {
+                toast.className = toast.className.replace('bg-gray-800', 'bg-green-600');
+            } else if (type === 'error') {
+                toast.className = toast.className.replace('bg-gray-800', 'bg-red-600');
+            }
+            
+            // Show toast
+            toast.style.transform = 'translateY(0)';
+            
+            // Hide after 3 seconds
+            setTimeout(() => {
+                toast.style.transform = 'translateY(100%)';
+            }, 3000);
+        }
+        
+        // Generate reports function
+        async function generateReports() {
+            const count = prompt('How many reports to generate?', '5');
+            if (!count) return;
+            
+            showToast('Generating reports...', 'info');
+            
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ count: parseInt(count) })
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    setTimeout(() => location.reload(), 2000);
+                } else {
+                    showToast(data.message, 'error');
+                }
+            } catch {
+                showToast('Error generating reports', 'error');
+            }
+        }
+        
+        // Evaluate reports function
+        async function evaluateReports() {
+            showToast('Running QA evaluation...', 'info');
+            
+            try {
+                const response = await fetch('/evaluate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    setTimeout(() => location.reload(), 2000);
+                } else {
+                    showToast(data.message, 'error');
+                }
+            } catch {
+                showToast('Error running evaluation', 'error');
+            }
+        }
+        
+        // Setup tooltips for issue highlights
+        document.addEventListener('DOMContentLoaded', function() {
+            const tooltip = document.getElementById('tooltip');
+            document.querySelectorAll('.issue-highlight').forEach(element => {
+                element.addEventListener('mouseenter', function() {
+                    const comment = this.getAttribute('data-comment');
+                    tooltip.textContent = comment;
+                    tooltip.classList.add('show');
+                    const rect = this.getBoundingClientRect();
+                    tooltip.style.left = rect.left + 'px';
+                    tooltip.style.top = (rect.top - 40) + 'px';
+                }); 
+                element.addEventListener('mouseleave', () => tooltip.classList.remove('show'));
+            });
+        });
+    </script>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>

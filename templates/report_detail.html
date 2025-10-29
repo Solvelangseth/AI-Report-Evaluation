@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block title %}Report #{{ report.id }} - Inspection Report QA{% endblock %}
+
+{% block content %}
+<div class="animate-slide-in">
+    <!-- Header with breadcrumb -->
+    <div class="mb-6">
+        <nav class="text-sm mb-4">
+            <a href="/" class="text-gray-500 hover:text-gray-700">Dashboard</a>
+            <span class="text-gray-500 mx-2">/</span>
+            <a href="/reports" class="text-gray-500 hover:text-gray-700">Reports</a>
+            <span class="text-gray-500 mx-2">/</span>
+            <span class="text-gray-900">Report #{{ report.id }}</span>
+        </nav>
+        
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900">{{ report.topic|title }}</h1>
+                <p class="text-gray-600 mt-2">Generated on {{ report.created_at.strftime('%B %d, %Y at %H:%M') }}</p>
+            </div>
+            <div class="flex space-x-3">
+                <span class="status-badge status-{{ report.status }}">
+                    Expected: {{ report.status.replace('_', ' ').title() }}
+                </span>
+                {% if qa_result %}
+                <span class="status-badge status-{{ qa_result.final_quality }}">
+                    QA Result: {{ qa_result.final_quality.replace('_', ' ').title() }}
+                </span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- QA Summary -->
+    {% if qa_result %}
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">QA Evaluation Summary</h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+                <p class="text-sm text-gray-600 mb-1">Rule-based QA</p>
+                <span class="status-badge status-{{ qa_result.rule_quality }}">
+                    {{ qa_result.rule_quality.replace('_', ' ').title() }}
+                </span>
+            </div>
+            <div>
+                <p class="text-sm text-gray-600 mb-1">LLM-based QA</p>
+                <span class="status-badge status-{{ qa_result.llm_quality }}">
+                    {{ qa_result.llm_quality.replace('_', ' ').title() }}
+                </span>
+            </div>
+            <div>
+                <p class="text-sm text-gray-600 mb-1">Issues Found</p>
+                <p class="text-xl font-semibold">
+                    {% set major_issues = issues|selectattr('type', 'equalto', 'major')|list %}
+                    {% set minor_issues = issues|selectattr('type', 'equalto', 'minor')|list %}
+                    <span class="text-red-600">{{ major_issues|length }} major</span>,
+                    <span class="text-yellow-600">{{ minor_issues|length }} minor</span>
+                </p>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    
+    <!-- Main Content Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Report Content (2/3 width) -->
+        <div class="lg:col-span-2">
+            <div class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Report Content</h2>
+                <div class="prose max-w-none text-gray-800 report-content">
+                    {{ report.report_text|highlight_issues(issues)|safe }}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Issues Sidebar (1/3 width) -->
+        <div>
+            <div class="bg-white rounded-lg shadow p-6 sticky top-6">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">
+                    <i class="fas fa-exclamation-triangle text-yellow-500 mr-2"></i>
+                    QA Issues
+                </h2>
+                
+                {% if issues %}
+                <div class="space-y-3 max-h-96 overflow-y-auto">
+                    {% for issue in issues %}
+                    <div class="border-l-4 {% if issue.type == 'major' %}border-red-500{% else %}border-yellow-500{% endif %} pl-4 py-2">
+                        <div class="flex items-start">
+                            <span class="inline-block px-2 py-1 text-xs rounded-full {% if issue.type == 'major' %}bg-red-100 text-red-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                                {{ issue.type|upper }}
+                            </span>
+                            <div class="ml-3 flex-1">
+                                <p class="text-sm text-gray-800">{{ issue.comment }}</p>
+                                {% if issue.span != "0:0" and not issue.span.startswith('section:') %}
+                                <button onclick="highlightSpan('{{ issue.id }}')" class="text-xs text-blue-600 hover:text-blue-800 mt-1">
+                                    <i class="fas fa-arrow-right mr-1"></i> Show in text
+                                </button>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-8 text-gray-500">
+                    <i class="fas fa-check-circle text-green-500 text-4xl mb-3"></i>
+                    <p>No issues found</p>
+                </div>
+                {% endif %}
+            </div>
+            
+            <!-- Report Metadata -->
+            <div class="bg-white rounded-lg shadow p-6 mt-6">
+                <h3 class="text-sm font-semibold text-gray-900 mb-3">Metadata</h3>
+                <dl class="space-y-2 text-sm">
+                    <div>
+                        <dt class="text-gray-500">File:</dt>
+                        <dd class="text-gray-900 font-mono text-xs">{{ report.filename }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-gray-500">Model:</dt>
+                        <dd class="text-gray-900">{{ report.model }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-gray-500">Generator:</dt>
+                        <dd class="text-gray-900">{{ report.generator_version }}</dd>
+                    </div>
+                </dl>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function highlightSpan(issueId) {
+        // Find the highlighted span with this issue ID
+        const elements = document.querySelectorAll(`[data-issue-id="${issueId}"]`);
+        if (elements.length > 0) {
+            const element = elements[0];
+            
+            // Scroll to element
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            
+            // Add pulse animation
+            element.style.animation = 'pulse 2s';
+            setTimeout(() => {
+                element.style.animation = '';
+            }, 2000);
+        }
+    }
+    
+    // Add pulse animation CSS
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    `;
+    document.head.appendChild(style);
+</script>
+{% endblock %}

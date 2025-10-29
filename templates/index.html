@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Inspection Report QA{% endblock %}
+
+{% block content %}
+<div class="animate-slide-in">
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">Dashboard</h1>
+        <p class="text-gray-600 mt-2">Overview of inspection report generation and quality assurance</p>
+    </div>
+    
+    <!-- Statistics Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <!-- Total Reports -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center">
+                <div class="p-3 bg-blue-100 rounded-full">
+                    <i class="fas fa-file-alt text-blue-600 text-xl"></i>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm text-gray-600">Total Reports</p>
+                    <p class="text-2xl font-semibold text-gray-900">{{ stats.total_reports }}</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Evaluated -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center">
+                <div class="p-3 bg-green-100 rounded-full">
+                    <i class="fas fa-check-circle text-green-600 text-xl"></i>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm text-gray-600">Evaluated</p>
+                    <p class="text-2xl font-semibold text-gray-900">{{ stats.total_evaluated }}</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- QA Accuracy -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center">
+                <div class="p-3 bg-purple-100 rounded-full">
+                    <i class="fas fa-chart-line text-purple-600 text-xl"></i>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm text-gray-600">QA Accuracy</p>
+                    <p class="text-2xl font-semibold text-gray-900">{{ stats.accuracy }}%</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Pending -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <div class="flex items-center">
+                <div class="p-3 bg-yellow-100 rounded-full">
+                    <i class="fas fa-clock text-yellow-600 text-xl"></i>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm text-gray-600">Pending</p>
+                    <p class="text-2xl font-semibold text-gray-900">{{ stats.total_reports - stats.total_evaluated }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Quality Distribution -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Chart -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Quality Distribution</h2>
+            <div class="space-y-4">
+                <!-- Clean -->
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <span class="text-sm font-medium text-gray-700">Clean</span>
+                        <span class="text-sm text-gray-600">{{ stats.clean_count }}</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-3">
+                        <div class="bg-green-500 h-3 rounded-full" style="width: {{ (stats.clean_count / (stats.total_evaluated if stats.total_evaluated > 0 else 1)) * 100 }}%"></div>
+                    </div>
+                </div>
+                
+                <!-- Minor Errors -->
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <span class="text-sm font-medium text-gray-700">Minor Errors</span>
+                        <span class="text-sm text-gray-600">{{ stats.minor_count }}</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-3">
+                        <div class="bg-yellow-500 h-3 rounded-full" style="width: {{ (stats.minor_count / (stats.total_evaluated if stats.total_evaluated > 0 else 1)) * 100 }}%"></div>
+                    </div>
+                </div>
+                
+                <!-- Major Errors -->
+                <div>
+                    <div class="flex justify-between mb-1">
+                        <span class="text-sm font-medium text-gray-700">Major Errors</span>
+                        <span class="text-sm text-gray-600">{{ stats.major_count }}</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-3">
+                        <div class="bg-red-500 h-3 rounded-full" style="width: {{ (stats.major_count / (stats.total_evaluated if stats.total_evaluated > 0 else 1)) * 100 }}%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Recent Activity -->
+        <div class="bg-white rounded-lg shadow p-6" x-data="{ activities: [] }" x-init="loadActivities()">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h2>
+            <div class="space-y-3" id="activity-feed">
+                <div class="text-center text-gray-500 py-8">
+                    <i class="fas fa-spinner fa-spin text-2xl"></i>
+                    <p class="mt-2">Loading activities...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function loadActivities() {
+        try {
+            const response = await fetch('/api/stats');
+            const data = await response.json();
+            
+            const feedEl = document.getElementById('activity-feed');
+            
+            if (data.recent_issues && data.recent_issues.length > 0) {
+                let html = '';
+                data.recent_issues.forEach(issue => {
+                    const iconClass = issue.type === 'major' ? 'fa-exclamation-circle text-red-500' : 'fa-exclamation-triangle text-yellow-500';
+                    html += `
+                        <div class="flex items-start space-x-3 p-3 hover:bg-gray-50 rounded">
+                            <i class="fas ${iconClass} mt-1"></i>
+                            <div class="flex-1">
+                                <p class="text-sm text-gray-800">${issue.comment}</p>
+                                <p class="text-xs text-gray-500 mt-1">${issue.type === 'major' ? 'Major Issue' : 'Minor Issue'}</p>
+                            </div>
+                        </div>
+                    `;
+                });
+                feedEl.innerHTML = html;
+            } else {
+                feedEl.innerHTML = '<p class="text-center text-gray-500 py-4">No recent issues found</p>';
+            }
+        } catch (error) {
+            console.error('Error loading activities:', error);
+        }
+    }
+    
+    // Auto-refresh stats every 30 seconds
+    setInterval(loadActivities, 30000);
+</script>
+{% endblock %}
