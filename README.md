@@ -1,4 +1,4 @@
-# 🏗️ Inspection Report QA System (Inspeksjonsrapport Kvalitetskontroll)
+# 🏗️ Report QA System (Rapport Kvalitetskontroll)
 
 An intelligent web application for **automated quality assurance (QA)** of **building inspection reports**, combining **rule-based validation** and **AI-driven evaluation**.  
 Users can upload inspection reports, run evaluations, and view detailed issue highlights directly in the browser.
