@@ -94,6 +94,17 @@ and the human/model agreement rate, and overrides are the signal a future
 RAG-curation agent will learn from. Reviews are shown on the reports list and
 recorded via `POST /report/<id>/review`.
 
+## Rules vs. LLM, and regulation grounding
+
+The deterministic **rules** only flag *objective* problems (missing/misordered
+sections, no measurements at all, length). Contextual judgment — whether language
+is actually vague, tone, and whether each deviation states cause/consequence/
+recommended measure/cost — is left to the **LLM**, judged in context rather than by
+a word blocklist. The judge prompt and the RAG are grounded in the real Norwegian
+framework (NS 3600, the forskrift til avhendingslova minimum requirements, and the
+tilstandsgrad TG0–TG3 grades); public regulation references are seeded into the RAG
+(`seed_regulations`). The NS standards themselves are copyrighted and only referenced.
+
 ## Confidence-gated triage
 
 Each verdict carries a **confidence** derived from whether the two independent

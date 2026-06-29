@@ -36,9 +36,17 @@ verdict → `qa_master` persists it. Modules are flat (no package).
 
 - **`config.py`** — every setting (paths, `DB_URL`, `LLM_PROVIDER`/models, thresholds,
   Flask). Env-overridable. Import this rather than hard-coding values.
-- **`qa_rules.py`** — `QABaseline`: the single source of truth for QA standards
-  (required sections + order, forbidden words, quantification/structure rules). Both
-  generation and rule QA read from here.
+- **`qa_rules.py`** — `QABaseline`: the QA standards (required sections + order,
+  forbidden words, quantification/structure rules). **Rules only emit *objective*
+  issues** (missing/misordered sections, no-units-at-all, length) — vagueness/tone/
+  consistency are deliberately left to the LLM, which judges them in context. The
+  `forbidden_words` list is fed to the judge prompt as *guidance*, not auto-flagged
+  (a hard blocklist false-positives on common words like "noe"). Grounded in the real
+  Norwegian framework (NS 3600 / forskrift til avhendingslova / tilstandsgrad TG0–TG3).
+- **Regulation references** live in the RAG via `db_setup.seed_regulations()`
+  (`RAGExample.source='regulation'`, `quality_label='reference'`) — public forskrift +
+  TG definitions the judge/agent retrieve to ground evaluations. NS standards are
+  copyrighted, so they're referenced, not reproduced.
 - **`curation.py`** — the RAG-curation agent (the feedback flywheel). Distills a reviewer
   **override** into a new `RAGExample` so retrieval improves from real corrections.
   Provider-agnostic curator (`openai`/`anthropic`/`fake`) with Pydantic-validated structured

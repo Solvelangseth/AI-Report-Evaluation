@@ -231,6 +231,77 @@ def seed_rag_examples(db_url: str = config.DB_URL) -> int:
     return inserted
 
 
+def seed_regulations(db_url: str = config.DB_URL) -> int:
+    """Insert public Norwegian regulation references into the RAG store.
+
+    These are reference entries (source='regulation') the judge and agent can
+    retrieve to ground evaluations in the real standards. Sourced from the public
+    forskrift til avhendingslova and widely published tilstandsgrad definitions —
+    the NS 3600/NS 3424 standards themselves are copyrighted and not reproduced.
+    """
+    references = [
+        {
+            "title": "Tilstandsgrader TG0–TG3 (NS 3424 / NS 3600)",
+            "topic": "tilstandsgrad",
+            "quality_label": "reference",
+            "report_excerpt": (
+                "TG0: ingen avvik, tilnærmet ny. TG1: mindre/moderate avvik, normal "
+                "slitasje. TG2: vesentlige avvik, tiltak nødvendig på kort/mellomlang "
+                "sikt. TG3: store/alvorlige avvik, strakstiltak. TGiU: ikke undersøkt."
+            ),
+            "guidance": (
+                "Map severity to condition grade: TG0/TG1 ≈ clean, TG2 ≈ minor/major "
+                "(substantial), TG3 ≈ major (serious, immediate action). A finding graded "
+                "serious but described without urgency, cause or cost is inconsistent."
+            ),
+        },
+        {
+            "title": "Minstekrav til tilstandsrapport (forskrift til avhendingslova kap. 2)",
+            "topic": "minstekrav",
+            "quality_label": "reference",
+            "report_excerpt": (
+                "For rom/bygningsdeler med tilstandsgrad TG2 eller TG3 skal årsak, "
+                "konsekvens, anbefalt tiltak og et kostnadsoverslag oppgis. Krav til "
+                "undersøkelse av våtrom (hulltaking/fuktmåling), tak og loft, kjeller og "
+                "rom under bakken, samt drenering. Arealer (BRA) skal oppgis."
+            ),
+            "guidance": (
+                "Flag a major issue when a serious deviation is reported without cause, "
+                "consequence, recommended measure or cost. Flag when required assessment "
+                "areas (wet rooms, roof, basement/drainage) or area figures are missing."
+            ),
+        },
+        {
+            "title": "Kostnadsoverslag og konsistens",
+            "topic": "kostnadsestimat",
+            "quality_label": "reference",
+            "report_excerpt": (
+                "Forskriften krever kostnadsoverslag for utbedring av rom/bygningsdeler "
+                "med laveste tilstandsgrad (TG3). Anbefalinger skal stå i forhold til "
+                "alvorlighetsgrad."
+            ),
+            "guidance": (
+                "Expect a concrete cost figure (kr) for the most serious deviations, and "
+                "recommendations that match severity: strakstiltak for TG3, planned "
+                "maintenance for TG2."
+            ),
+        },
+    ]
+
+    session = get_session(db_url)
+    inserted = 0
+    try:
+        for ref in references:
+            if session.query(RAGExample).filter_by(title=ref["title"]).first():
+                continue
+            session.add(RAGExample(source="regulation", **ref))
+            inserted += 1
+        session.commit()
+    finally:
+        session.close()
+    return inserted
+
+
 if __name__ == "__main__":
     session = init_db()
     try:

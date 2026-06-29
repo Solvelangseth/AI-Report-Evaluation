@@ -14,7 +14,9 @@ import reviews
 from generate_reports import ReportGenerator
 from qa_master import QAEvaluator
 from judge import JudgeError
-from db_setup import init_db, get_session, Report, QAResult, seed_rag_examples
+from db_setup import (
+    init_db, get_session, Report, QAResult, seed_rag_examples, seed_regulations,
+)
 
 def check_environment(require_generation: bool) -> bool:
     """Check that the environment is configured for the requested work."""
@@ -41,7 +43,8 @@ def run_pipeline(generate_count: int = 5, skip_generation: bool = False):
     session = init_db()
     session.close()
     inserted = seed_rag_examples()
-    print(f"📚 RAG example seed complete (new rows inserted: {inserted})")
+    inserted_reg = seed_regulations()
+    print(f"📚 RAG seed complete (examples: {inserted}, regulation refs: {inserted_reg})")
 
     # Step 1: Generate reports
     if not skip_generation:

@@ -23,7 +23,9 @@ import config
 import reviews
 import scoring
 import curation
-from db_setup import get_session, Report, QAResult, QAIssue, seed_rag_examples
+from db_setup import (
+    get_session, Report, QAResult, QAIssue, seed_rag_examples, seed_regulations,
+)
 from judge import JudgeError
 from qa_master import QAEvaluator
 
@@ -33,9 +35,11 @@ app.config["SECRET_KEY"] = config.FLASK_SECRET_KEY or secrets.token_hex(32)
 app.config["UPLOAD_FOLDER"] = str(config.UPLOAD_DIR)
 app.config["MAX_CONTENT_LENGTH"] = config.MAX_CONTENT_LENGTH
 
-# Ensure directories and schema exist, and seed RAG examples once at startup.
+# Ensure directories and schema exist, and seed RAG examples + regulation
+# references once at startup.
 config.ensure_dirs()
 seed_rag_examples()
+seed_regulations()
 
 
 def get_db():

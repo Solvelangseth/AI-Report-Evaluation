@@ -102,14 +102,13 @@ def rule_based_issues(report_text: str) -> List[Dict]:
         issues.append({"type": "major", "span": "0:0",
                        "comment": "Sections are not in the correct order"})
 
-    for forbidden in QABaseline.check_forbidden_words(report_text):
-        issues.append({
-            "type": "minor",
-            "span": forbidden["span"],
-            "comment": f"Forbidden word '{forbidden['word']}' found - use more precise language",
-        })
-
+    # Rules only flag *objective* issues. Vague language and tone are contextual,
+    # so they are left to the LLM judge (the forbidden-word list is passed to it as
+    # guidance instead). The one quantification signal we keep is structural: a
+    # substantial report with no units at all.
     for quant in QABaseline.check_quantification(report_text):
+        if quant.get("type") != "missing_units":
+            continue
         issues.append({"type": "minor", "span": quant.get("span", "0:0"),
                        "comment": quant["suggestion"]})
 
@@ -139,22 +138,30 @@ class QAEngine:
     def _build_prompt(self, report_text: str, rag_context: str) -> str:
         baseline = QABaseline.get_baseline()
         return f"""
-Evaluate this Norwegian building inspection report against quality standards.
+Evaluate this Norwegian building inspection report (tilstandsrapport) against the
+standards used for Norwegian condition reports (NS 3600 / forskrift til avhendingslova).
 
 REPORT:
 {report_text}
 
 QUALITY STANDARDS:
-1. Required sections (in order): {', '.join(baseline['required_sections'])}
-2. Forbidden vague words: {', '.join(baseline['forbidden_words'])}
-3. Must use specific measurements with units (m², %, kr)
-4. Professional, technical tone required
-5. Logical consistency between severity and recommendations
+1. Required sections, in order: {', '.join(baseline['required_sections'])}.
+2. Each reported deviation should state its cause (årsak), consequence (konsekvens),
+   recommended measure (anbefaling), and a cost estimate (kostnad) — especially for
+   serious deviations (condition grade TG2/TG3). A serious finding with no recommended
+   action or cost is an inconsistency (major).
+3. Severity must match urgency: TG3/strakstiltak for serious, planned maintenance for
+   moderate. Flag mismatches.
+4. Prefer specific, measurable findings with units (m², %, kr, mm) over vague language.
+   Judge vagueness IN CONTEXT — terms such as [{', '.join(baseline['forbidden_words'])}]
+   are only a problem when they replace a concrete measurement or assessment, NOT in
+   ordinary descriptive prose. Do not flag a word merely for appearing.
+5. Professional, technical tone.
 
-RETRIEVED REFERENCE EXAMPLES (RAG):
+RETRIEVED REFERENCE EXAMPLES AND REGULATION GUIDANCE (RAG):
 {rag_context}
 
-Identify issues and return a STRICT JSON object of this shape:
+Return a STRICT JSON object of this shape:
 {{"issues": [{{"type": "minor|major", "text_snippet": "exact phrase with the issue", "comment": "specific improvement suggestion"}}]}}
 If there are no issues, return {{"issues": []}}.
 """.strip()
