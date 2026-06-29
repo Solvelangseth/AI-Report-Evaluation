@@ -46,13 +46,17 @@ verdict → `qa_master` persists it. Modules are flat (no package).
   never the LLM's. `curate_review` (one, idempotent) / `curate_pending` (batch); the new
   example is linked back via `Review.rag_example_id` and tagged `RAGExample.source="curation"`,
   then embedded lazily by the RAG layer. Triggered by `POST /curate` or `python main.py --curate`.
-- **`reviews.py`** — the human reviewer workflow. `record_review` (accept/override,
+- **`reviews.py`** — the human reviewer workflow **and triage**. `triage(qa_result)` →
+  `reviewed` | `auto_cleared` (high-confidence verdict in `config.AUTO_CLEAR_QUALITIES`,
+  default just `clean`) | `needs_review`; `triage_stats()` for the workload picture.
+  `record_review` (accept/override,
   upserted per `QAResult`), and the **single home for ground truth + accuracy**:
   `ground_truth(qa_result)` prefers a human `Review.corrected_quality` over the synthetic
   `expected_status`; `accuracy()` and `review_stats()` (agreement rate) are used by both
   `app.py` and `main.py`. Overrides are the training signal for the future curation agent.
-- **`scoring.py`** — `classify_issues()` + `worst_quality()`. The *only* place the
-  thresholds live (any major → `major_error`; > `MINOR_ISSUE_THRESHOLD` minors →
+- **`scoring.py`** — `classify_issues()`, `worst_quality()`, and `confidence()`
+  (high/medium/low from rule-vs-LLM agreement — a free, deterministic uncertainty
+  signal). The *only* place the thresholds live (any major → `major_error`; > `MINOR_ISSUE_THRESHOLD` minors →
   `minor_error`). `worst_quality` ignores unknown labels so a judge failure can never
   lower a verdict.
 - **`qa_engine.py`** — pure: text in, verdict out. No DB, no I/O. Holds the robust

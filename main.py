@@ -116,6 +116,10 @@ def display_statistics():
         rstats = reviews.review_stats(session)
         print(f"\nHuman reviews: {rstats['reviewed']} "
               f"({rstats['overrides']} overrides, {rstats['agreement_rate']:.1f}% agreement)")
+
+        tstats = reviews.triage_stats(session)
+        print(f"Triage: {tstats['auto_cleared']} auto-cleared, "
+              f"{tstats['needs_review']} need review, {tstats['reviewed']} reviewed")
         
         # Top issues
         from sqlalchemy import func

@@ -72,6 +72,12 @@ ALLOWED_EXTENSIONS = {"txt", "pdf", "docx", "json"}
 # Report quality labels, ordered from best to worst.
 QUALITY_LEVELS = ("clean", "minor_error", "major_error")
 
+# Triage: verdicts in this set are auto-cleared when confidence is high (no human
+# review needed). Everything else is routed to a reviewer.
+AUTO_CLEAR_QUALITIES = {
+    s.strip() for s in os.getenv("AUTO_CLEAR_QUALITIES", "clean").split(",") if s.strip()
+}
+
 
 def ensure_dirs() -> None:
     """Create the data/upload directories if they do not yet exist."""

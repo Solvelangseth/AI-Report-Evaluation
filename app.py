@@ -21,6 +21,7 @@ from markupsafe import Markup, escape
 
 import config
 import reviews
+import scoring
 import curation
 from db_setup import get_session, Report, QAResult, QAIssue, seed_rag_examples
 from judge import JudgeError
@@ -67,6 +68,7 @@ def index():
             "pending_count": db.query(Report).outerjoin(QAResult)
                                .filter(QAResult.id == None).count(),  # noqa: E711
             **reviews.review_stats(db),
+            **reviews.triage_stats(db),
         }
         return render_template("index.html", stats=stats)
     finally:
@@ -171,6 +173,9 @@ def reports_list():
                 "review_decision": review.decision if review else None,
                 "corrected_quality": review.corrected_quality if review else None,
                 "reviewable": qa_result is not None,
+                "confidence": scoring.confidence(qa_result.rule_quality,
+                                                 qa_result.llm_quality) if qa_result else None,
+                "triage": reviews.triage(qa_result) if qa_result else "pending",
             })
         return render_template("reports.html", reports=reports_data)
     finally:
@@ -207,6 +212,9 @@ def report_detail(report_id):
             "report_detail.html", report=report, qa_result=qa_result, issues=issues,
             review=qa_result.review if qa_result else None,
             ground_truth=reviews.ground_truth(qa_result) if qa_result else None,
+            confidence=scoring.confidence(qa_result.rule_quality,
+                                          qa_result.llm_quality) if qa_result else None,
+            triage=reviews.triage(qa_result) if qa_result else None,
             quality_levels=config.QUALITY_LEVELS,
         )
     finally:
@@ -329,6 +337,7 @@ def get_stats():
                          .filter(QAResult.id == None).count(),  # noqa: E711
             "accuracy": reviews.accuracy(db)["accuracy"],
             **reviews.review_stats(db),
+            **reviews.triage_stats(db),
         }
         recent = db.query(QAIssue).order_by(desc(QAIssue.created_at)).limit(10).all()
         stats["recent_issues"] = [

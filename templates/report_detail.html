@@ -68,6 +68,17 @@
         <h2 class="text-lg font-semibold text-gray-900 mb-4">
             <i class="fas fa-user-check text-blue-500 mr-2"></i> Reviewer Decision
         </h2>
+        <p class="text-sm mb-4">
+            Confidence:
+            <span class="font-medium {% if confidence == 'low' %}text-yellow-700{% elif confidence == 'high' %}text-green-700{% else %}text-gray-700{% endif %}">
+                {{ confidence|title }}
+            </span>
+            {% if triage == 'auto_cleared' %}
+            · <span class="text-green-700"><i class="fas fa-check-circle mr-1"></i>Auto-cleared (review optional)</span>
+            {% elif triage == 'needs_review' %}
+            · <span class="text-yellow-700"><i class="fas fa-flag mr-1"></i>Flagged for review{% if confidence == 'low' %} — rule and LLM disagree{% endif %}</span>
+            {% endif %}
+        </p>
         {% if review %}
         <div class="mb-4 text-sm">
             <span class="status-badge status-{{ review.corrected_quality }}">

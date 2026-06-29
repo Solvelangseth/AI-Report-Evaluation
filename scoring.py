@@ -33,6 +33,22 @@ def classify_issues(
     return "clean"
 
 
+def confidence(rule_quality: str, llm_quality: str) -> str:
+    """Confidence in a verdict, from agreement between the two signals.
+
+    The rule and LLM checks are independent, so their agreement is a cheap,
+    deterministic uncertainty signal:
+    - both agree            → "high"
+    - both disagree         → "low"  (the signals conflict — worth a human look)
+    - LLM unavailable/error → "medium" (rules only)
+    """
+    rule_known = rule_quality in _SEVERITY
+    llm_known = llm_quality in _SEVERITY
+    if rule_known and llm_known:
+        return "high" if rule_quality == llm_quality else "low"
+    return "medium"
+
+
 def worst_quality(*qualities: str) -> str:
     """Return the most severe known quality label among the arguments.
 

@@ -94,6 +94,21 @@ and the human/model agreement rate, and overrides are the signal a future
 RAG-curation agent will learn from. Reviews are shown on the reports list and
 recorded via `POST /report/<id>/review`.
 
+## Confidence-gated triage
+
+Each verdict carries a **confidence** derived from whether the two independent
+signals (rules and the LLM) agree — high when they agree, low when they conflict,
+medium when the LLM is unavailable. This drives triage:
+
+- **Auto-cleared** — high-confidence verdicts in `AUTO_CLEAR_QUALITIES` (default
+  `clean`) need no human.
+- **Needs review** — everything else (conflicting signals or actionable verdicts)
+  is routed to a reviewer.
+
+The reports page has a triage filter so a reviewer can work just their queue, and
+the dashboard/stats show the workload split. Set `AUTO_CLEAR_QUALITIES=clean,minor_error`
+to auto-clear more aggressively.
+
 ## Learning from corrections (the flywheel)
 
 Each reviewer **override** can be distilled into a new retrieval example by the

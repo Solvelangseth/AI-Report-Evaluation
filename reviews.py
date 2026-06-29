@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import config
+import scoring
 from db_setup import QAResult, Review
 
 VALID_DECISIONS = {"accepted", "overridden"}
@@ -70,6 +71,28 @@ def accuracy(session) -> dict:
     matches = sum(1 for final, truth in pairs if final == truth)
     return {"accuracy": round(matches / len(pairs) * 100, 1),
             "matches": matches, "total": len(pairs)}
+
+
+def triage(qa_result: QAResult) -> str:
+    """Where a QA result should go: 'reviewed' | 'auto_cleared' | 'needs_review'.
+
+    A human review always wins. Otherwise a high-confidence verdict in the
+    auto-clear set needs no human; everything else is routed for review.
+    """
+    if qa_result.review:
+        return "reviewed"
+    conf = scoring.confidence(qa_result.rule_quality, qa_result.llm_quality)
+    if conf == "high" and qa_result.final_quality in config.AUTO_CLEAR_QUALITIES:
+        return "auto_cleared"
+    return "needs_review"
+
+
+def triage_stats(session) -> dict:
+    """How many results fall into each triage bucket (the workload picture)."""
+    counts = {"reviewed": 0, "auto_cleared": 0, "needs_review": 0}
+    for qa_result in session.query(QAResult).all():
+        counts[triage(qa_result)] += 1
+    return counts
 
 
 def review_stats(session) -> dict:

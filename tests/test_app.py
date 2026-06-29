@@ -23,6 +23,8 @@ def test_reports_page_loads(client):
 def test_stats_api(client):
     data = client.get("/api/stats").get_json()
     assert "accuracy" in data and "total_reports" in data
+    # triage buckets are exposed for the workload view
+    assert {"auto_cleared", "needs_review", "reviewed"} <= set(data)
 
 
 def test_upload_rejects_bad_extension(client):
