@@ -94,6 +94,20 @@ and the human/model agreement rate, and overrides are the signal a future
 RAG-curation agent will learn from. Reviews are shown on the reports list and
 recorded via `POST /report/<id>/review`.
 
+## Report authoring pipeline (drafting assistant)
+
+Beyond *checking* reports, the app can *draft* them. `authoring.AuthoringPipeline`
+takes structured findings (building part, observation, measurement, severity/TG)
+and runs: **cost analyst** (grounds each remediation estimate in `prices.py`'s
+curated unit-price reference, with assumptions) → **composer** (assembles the six
+sections per NS 3600 / forskrift) → **QA evaluation** → a revise loop. It's a
+drafting assistant — only a certified *bygningssakkyndig* may issue a report, and
+the indicative cost figures must be verified. All agents have `fake` offline
+implementations, so the pipeline runs and is tested without an API key.
+
+Calibration of the judge is guarded by `eval_harness.py` (labelled reports with
+expected verdicts; run `LLM_PROVIDER=openai python eval_harness.py`).
+
 ## Rules vs. LLM, and regulation grounding
 
 The deterministic **rules** only flag *objective* problems (missing/misordered

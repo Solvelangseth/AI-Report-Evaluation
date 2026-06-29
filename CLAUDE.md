@@ -54,6 +54,15 @@ verdict → `qa_master` persists it. Modules are flat (no package).
   never the LLM's. `curate_review` (one, idempotent) / `curate_pending` (batch); the new
   example is linked back via `Review.rag_example_id` and tagged `RAGExample.source="curation"`,
   then embedded lazily by the RAG layer. Triggered by `POST /curate` or `python main.py --curate`.
+- **`authoring.py`** / **`prices.py`** — the report **authoring** pipeline (a drafting
+  assistant for the certified inspector, not an autonomous issuer). `AuthoringPipeline`:
+  structured `Finding`s → `CostAnalyst` (grounded in `prices.py`'s curated, *indicative*
+  unit-price reference) → `Composer` (assembles the six sections per the standard) →
+  `QAEngine` evaluation → revise loop. Agents are provider-agnostic with `fake` offline
+  impls; the eval stage reuses the judge. Cost figures are legally relevant — labelled
+  indicative and must be verified (`prices.DISCLAIMER`). Not yet wired to web/CLI.
+- **`eval_harness.py`** — labelled-report calibration harness (run against a real
+  provider) guarding the judge against over/under-flagging regressions.
 - **`reviews.py`** — the human reviewer workflow **and triage**. `triage(qa_result)` →
   `reviewed` | `auto_cleared` (high-confidence verdict in `config.AUTO_CLEAR_QUALITIES`,
   default just `clean`) | `needs_review`; `triage_stats()` for the workload picture.
