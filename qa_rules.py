@@ -66,7 +66,7 @@ class QABaseline:
     
     # Structure requirements
     STRUCTURE_RULES = {
-        "min_section_length": 50,  # characters
+        "min_section_length": 30,  # characters (concise sections are fine)
         "max_section_length": 500,
         "total_min_length": 400,
         "total_max_length": 2000,

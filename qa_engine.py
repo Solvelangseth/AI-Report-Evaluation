@@ -148,8 +148,7 @@ QUALITY STANDARDS:
 1. Required sections, in order: {', '.join(baseline['required_sections'])}.
 2. Each reported deviation should state its cause (årsak), consequence (konsekvens),
    recommended measure (anbefaling), and a cost estimate (kostnad) — especially for
-   serious deviations (condition grade TG2/TG3). A serious finding with no recommended
-   action or cost is an inconsistency (major).
+   serious deviations (condition grade TG2/TG3).
 3. Severity must match urgency: TG3/strakstiltak for serious, planned maintenance for
    moderate. Flag mismatches.
 4. Prefer specific, measurable findings with units (m², %, kr, mm) over vague language.
@@ -157,6 +156,17 @@ QUALITY STANDARDS:
    are only a problem when they replace a concrete measurement or assessment, NOT in
    ordinary descriptive prose. Do not flag a word merely for appearing.
 5. Professional, technical tone.
+
+HOW TO GRADE (be calibrated — do NOT over-flag):
+- "major": only for issues that would mislead a buyer or breach the minimum
+  requirements — a missing required section, a serious deviation (TG2/TG3) reported
+  without its cause/consequence/recommended measure/cost, or a clear contradiction
+  between the described severity and the recommended action or cost.
+- "minor": improvement suggestions — wording that could be more specific, slightly
+  thin descriptions, tone.
+- A complete, internally consistent, well-measured report should produce FEW OR NO
+  issues. Do not invent problems, and do NOT flag the mere absence of an explicit
+  "TG" label when the severity is already clear from the description.
 
 RETRIEVED REFERENCE EXAMPLES AND REGULATION GUIDANCE (RAG):
 {rag_context}
