@@ -62,6 +62,68 @@
     </div>
     {% endif %}
     
+    <!-- Reviewer Decision -->
+    {% if qa_result %}
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 class="text-lg font-semibold text-gray-900 mb-4">
+            <i class="fas fa-user-check text-blue-500 mr-2"></i> Reviewer Decision
+        </h2>
+        {% if review %}
+        <div class="mb-4 text-sm">
+            <span class="status-badge status-{{ review.corrected_quality }}">
+                {{ review.decision|title }}: {{ review.corrected_quality.replace('_', ' ').title() }}
+            </span>
+            <span class="text-gray-500 ml-2">recorded {{ review.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+            {% if review.note %}<p class="text-gray-700 mt-2 italic">"{{ review.note }}"</p>{% endif %}
+        </div>
+        {% if review.decision == 'overridden' %}
+        <div class="mb-4 text-sm">
+            {% if review.rag_example_id %}
+            <span class="text-green-700">
+                <i class="fas fa-book mr-1"></i>
+                Added to the knowledge base (example #{{ review.rag_example_id }})
+            </span>
+            {% else %}
+            <button onclick="curateReview()"
+                    class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-md text-sm font-medium">
+                <i class="fas fa-graduation-cap mr-1"></i> Add correction to knowledge base
+            </button>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% else %}
+        <p class="text-sm text-gray-600 mb-4">No human review yet. Confirm the verdict or correct it.</p>
+        {% endif %}
+
+        <div class="flex flex-wrap items-end gap-3">
+            <button onclick="submitReview('accepted')"
+                    class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+                <i class="fas fa-check mr-1"></i>
+                Accept verdict ({{ qa_result.final_quality.replace('_', ' ').title() }})
+            </button>
+            <div class="flex items-end gap-2">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Override to</label>
+                    <select id="overrideQuality" class="border-gray-300 rounded-md text-sm">
+                        {% for q in quality_levels %}
+                        <option value="{{ q }}" {% if review and review.corrected_quality == q %}selected{% endif %}>
+                            {{ q.replace('_', ' ').title() }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button onclick="submitReview('overridden')"
+                        class="bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+                    <i class="fas fa-pen mr-1"></i> Override
+                </button>
+            </div>
+            <input id="reviewNote" type="text" placeholder="Optional note (why)…"
+                   value="{{ review.note or '' if review else '' }}"
+                   class="border-gray-300 rounded-md text-sm px-3 py-2 flex-1" style="min-width:200px">
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Main Content Grid -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Report Content (2/3 width) -->
@@ -133,6 +195,51 @@
 </div>
 
 <script>
+    async function curateReview() {
+        try {
+            const resp = await fetch('/curate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ report_id: {{ report.id }} })
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast(data.message, 'success');
+                setTimeout(() => location.reload(), 800);
+            } else {
+                showToast(data.message || 'Error curating correction', 'error');
+            }
+        } catch {
+            showToast('Error curating correction', 'error');
+        }
+    }
+
+    async function submitReview(decision) {
+        const body = { decision };
+        if (decision === 'overridden') {
+            body.corrected_quality = document.getElementById('overrideQuality').value;
+        }
+        const note = document.getElementById('reviewNote').value.trim();
+        if (note) body.note = note;
+
+        try {
+            const resp = await fetch('/report/{{ report.id }}/review', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const data = await resp.json();
+            if (data.success) {
+                showToast('Review saved', 'success');
+                setTimeout(() => location.reload(), 800);
+            } else {
+                showToast(data.message || 'Error saving review', 'error');
+            }
+        } catch {
+            showToast('Error saving review', 'error');
+        }
+    }
+
     function highlightSpan(issueId) {
         // Find the highlighted span with this issue ID
         const elements = document.querySelectorAll(`[data-issue-id="${issueId}"]`);

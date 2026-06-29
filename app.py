@@ -1,393 +1,398 @@
 """
-Flask Web Application for Inspection Report QA System
-Modified to support file uploads instead of generation
+Flask web application for the inspection report QA system.
+
+Handles uploads, evaluation, and the dashboard. Evaluation logic lives in
+qa_engine/qa_master; this module is the web layer only.
 """
 
 import os
+import re
 import json
-from pathlib import Path
-from datetime import datetime
-from flask import Flask, render_template, jsonify, request, redirect, url_for, flash
+import secrets
+from datetime import datetime, timezone
+
+from flask import Flask, render_template, jsonify, request, redirect, flash
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
-from sqlalchemy import create_engine, desc
-from sqlalchemy.orm import sessionmaker
-import re
+from sqlalchemy import desc
 import markdown
-from markupsafe import Markup
+import bleach
+from markupsafe import Markup, escape
 
-# Import our modules
-from db_setup import Report, QAResult, QAIssue, Base
+import config
+import reviews
+import curation
+from db_setup import get_session, Report, QAResult, QAIssue, seed_rag_examples
+from judge import JudgeError
 from qa_master import QAEvaluator
 
 app = Flask(__name__)
 CORS(app)
-app.config['SECRET_KEY'] = 'your-secret-key-here-change-in-production'
-app.config['UPLOAD_FOLDER'] = 'data/uploads'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'doc', 'docx', 'json'}
+app.config["SECRET_KEY"] = config.FLASK_SECRET_KEY or secrets.token_hex(32)
+app.config["UPLOAD_FOLDER"] = str(config.UPLOAD_DIR)
+app.config["MAX_CONTENT_LENGTH"] = config.MAX_CONTENT_LENGTH
 
-# Create upload folder if it doesn't exist
-Path(app.config['UPLOAD_FOLDER']).mkdir(parents=True, exist_ok=True)
+# Ensure directories and schema exist, and seed RAG examples once at startup.
+config.ensure_dirs()
+seed_rag_examples()
 
-# Database setup
-engine = create_engine('sqlite:///data/reports.db')
-Base.metadata.bind = engine
-DBSession = sessionmaker(bind=engine)
 
 def get_db():
-    """Get database session."""
-    return DBSession()
+    return get_session()
+
 
 def allowed_file(filename):
-    """Check if file extension is allowed."""
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in config.ALLOWED_EXTENSIONS
 
-@app.route('/')
+
+def _quality_counts(db):
+    return {
+        q: db.query(QAResult).filter(QAResult.final_quality == q).count()
+        for q in config.QUALITY_LEVELS
+    }
+
+
+@app.route("/")
 def index():
-    """Main dashboard page."""
     db = get_db()
     try:
-        # Get statistics
-        total_reports = db.query(Report).count()
-        total_evaluated = db.query(QAResult).count()
-        
-        # Get quality distribution
-        clean_count = db.query(QAResult).filter(QAResult.final_quality == 'clean').count()
-        minor_count = db.query(QAResult).filter(QAResult.final_quality == 'minor_error').count()
-        major_count = db.query(QAResult).filter(QAResult.final_quality == 'major_error').count()
-        
-        # Calculate accuracy
-        if total_evaluated > 0:
-            matches = db.query(QAResult).filter(
-                QAResult.final_quality == QAResult.expected_status
-            ).count()
-            accuracy = round((matches / total_evaluated) * 100, 1)
-        else:
-            accuracy = 0
-        
-        # Get pending reports (uploaded but not evaluated)
-        pending_count = db.query(Report).outerjoin(QAResult).filter(QAResult.id == None).count()
-        
+        counts = _quality_counts(db)
         stats = {
-            'total_reports': total_reports,
-            'total_evaluated': total_evaluated,
-            'clean_count': clean_count,
-            'minor_count': minor_count,
-            'major_count': major_count,
-            'accuracy': accuracy,
-            'pending_count': pending_count
+            "total_reports": db.query(Report).count(),
+            "total_evaluated": db.query(QAResult).count(),
+            "clean_count": counts["clean"],
+            "minor_count": counts["minor_error"],
+            "major_count": counts["major_error"],
+            "accuracy": reviews.accuracy(db)["accuracy"],
+            "pending_count": db.query(Report).outerjoin(QAResult)
+                               .filter(QAResult.id == None).count(),  # noqa: E711
+            **reviews.review_stats(db),
         }
-        
-        return render_template('index.html', stats=stats)
+        return render_template("index.html", stats=stats)
     finally:
         db.close()
 
-@app.route('/upload', methods=['GET', 'POST'])
+
+@app.route("/upload", methods=["GET", "POST"])
 def upload_file():
-    """Handle file upload."""
-    if request.method == 'POST':
-        # Check if file is present
-        if 'file' not in request.files:
-            flash('No file selected')
+    if request.method == "POST":
+        if "file" not in request.files or request.files["file"].filename == "":
+            flash("No file selected")
             return redirect(request.url)
-        
-        file = request.files['file']
-        
-        # Check if file is selected
-        if file.filename == '':
-            flash('No file selected')
-            return redirect(request.url)
-        
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            # Add timestamp to filename to avoid collisions
-            base_name = filename.rsplit('.', 1)[0]
-            extension = filename.rsplit('.', 1)[1]
-            unique_filename = f"{base_name}_{timestamp}.{extension}"
-            
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
-            file.save(filepath)
-            
-            # Extract text content based on file type
-            try:
-                report_text = extract_text_from_file(filepath, extension)
-                topic = request.form.get('topic', base_name)
-                
-                # Save to database
-                db = get_db()
-                try:
-                    report = Report(
-                        filename=unique_filename,
-                        topic=topic,
-                        status='pending',  # Will be determined by QA
-                        report_text=report_text,
-                        generator_version='upload_v1',
-                        model='user_upload',
-                        created_at=datetime.utcnow()
-                    )
-                    db.add(report)
-                    db.commit()
-                    
-                    return jsonify({
-                        'success': True,
-                        'message': f'File "{filename}" uploaded successfully',
-                        'report_id': report.id
-                    })
-                finally:
-                    db.close()
-                    
-            except Exception as e:
-                return jsonify({
-                    'success': False,
-                    'message': f'Error processing file: {str(e)}'
-                }), 400
-        else:
-            return jsonify({
-                'success': False,
-                'message': 'Invalid file type. Allowed types: txt, pdf, doc, docx, json'
-            }), 400
-    
-    # GET request - show upload form
-    return render_template('upload.html')
+
+        file = request.files["file"]
+        if not allowed_file(file.filename):
+            return jsonify({"success": False,
+                            "message": "Invalid file type. Allowed: txt, pdf, docx, json"}), 400
+
+        filename = secure_filename(file.filename)
+        base_name, extension = filename.rsplit(".", 1)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Random suffix so same-named uploads within one second don't collide.
+        unique_filename = f"{base_name}_{timestamp}_{secrets.token_hex(3)}.{extension}"
+        filepath = os.path.join(app.config["UPLOAD_FOLDER"], unique_filename)
+        file.save(filepath)
+
+        try:
+            report_text = extract_text_from_file(filepath, extension)
+        except Exception as exc:
+            return jsonify({"success": False, "message": f"Error processing file: {exc}"}), 400
+
+        db = get_db()
+        try:
+            report = Report(
+                filename=unique_filename,
+                topic=request.form.get("topic", base_name),
+                status="pending",
+                source="upload",
+                report_text=report_text,
+                generator_version="upload_v1",
+                model="user_upload",
+                created_at=datetime.now(timezone.utc),
+            )
+            db.add(report)
+            db.commit()
+            return jsonify({"success": True,
+                            "message": f'File "{filename}" uploaded successfully',
+                            "report_id": report.id})
+        finally:
+            db.close()
+
+    return render_template("upload.html")
+
 
 def extract_text_from_file(filepath, extension):
-    """Extract text content from uploaded file."""
-    if extension == 'txt':
-        with open(filepath, 'r', encoding='utf-8') as f:
+    """Extract text content from an uploaded file."""
+    if extension == "txt":
+        with open(filepath, "r", encoding="utf-8") as f:
             return f.read()
-    elif extension == 'json':
-        with open(filepath, 'r', encoding='utf-8') as f:
+    if extension == "json":
+        with open(filepath, "r", encoding="utf-8") as f:
             data = json.load(f)
-            # Try to extract report_text field or stringify the whole JSON
-            if isinstance(data, dict) and 'report_text' in data:
-                return data['report_text']
-            else:
-                return json.dumps(data, ensure_ascii=False, indent=2)
-    elif extension == 'pdf':
-        # You'll need to install PyPDF2 or pdfplumber for this
+        if isinstance(data, dict) and "report_text" in data:
+            return data["report_text"]
+        return json.dumps(data, ensure_ascii=False, indent=2)
+    if extension == "pdf":
         try:
             import PyPDF2
-            with open(filepath, 'rb') as f:
-                reader = PyPDF2.PdfReader(f)
-                text = ""
-                for page in reader.pages:
-                    text += page.extract_text() + "\n"
-                return text
         except ImportError:
-            return "PDF support requires PyPDF2 library. Please install it."
-    elif extension in ['doc', 'docx']:
-        # You'll need python-docx for this
+            raise RuntimeError("PDF support requires PyPDF2.")
+        with open(filepath, "rb") as f:
+            reader = PyPDF2.PdfReader(f)
+            return "\n".join((page.extract_text() or "") for page in reader.pages)
+    if extension == "docx":
         try:
             from docx import Document
-            doc = Document(filepath)
-            text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
-            return text
         except ImportError:
-            return "Word document support requires python-docx library. Please install it."
-    else:
-        return "Unsupported file type"
+            raise RuntimeError("DOCX support requires python-docx.")
+        doc = Document(filepath)
+        return "\n".join(p.text for p in doc.paragraphs)
+    raise ValueError("Unsupported file type")
 
-@app.route('/reports')
+
+@app.route("/reports")
 def reports_list():
-    """List all reports with their QA status."""
     db = get_db()
     try:
-        # Get all reports with their QA results
         reports = db.query(Report).order_by(desc(Report.created_at)).all()
-        
         reports_data = []
         for report in reports:
             qa_result = db.query(QAResult).filter(QAResult.report_id == report.id).first()
-            
+            review = qa_result.review if qa_result else None
             reports_data.append({
-                'id': report.id,
-                'filename': report.filename,
-                'topic': report.topic,
-                'status': report.status,
-                'created_at': report.created_at.strftime('%Y-%m-%d %H:%M'),
-                'qa_status': qa_result.final_quality if qa_result else 'pending',
-                'issue_count': len(qa_result.issues) if qa_result else 0,
-                'source': 'Upload' if report.model == 'user_upload' else 'Generated'
+                "id": report.id,
+                "filename": report.filename,
+                "topic": report.topic,
+                "status": report.status,
+                "created_at": report.created_at.strftime("%Y-%m-%d %H:%M"),
+                "qa_status": qa_result.final_quality if qa_result else "pending",
+                "issue_count": len(qa_result.issues) if qa_result else 0,
+                "source": "Upload" if report.source == "upload" else "Generated",
+                "review_decision": review.decision if review else None,
+                "corrected_quality": review.corrected_quality if review else None,
+                "reviewable": qa_result is not None,
             })
-        
-        return render_template('reports.html', reports=reports_data)
+        return render_template("reports.html", reports=reports_data)
     finally:
         db.close()
 
-@app.route('/report/<int:report_id>')
+
+@app.route("/report/<int:report_id>")
 def report_detail(report_id):
-    """Show detailed report with QA issues highlighted."""
     db = get_db()
     try:
         report = db.query(Report).filter(Report.id == report_id).first()
         if not report:
             return "Report not found", 404
-        
+
         qa_result = db.query(QAResult).filter(QAResult.report_id == report_id).first()
-        
-        # Process issues for highlighting
         issues = []
         if qa_result:
             for issue in qa_result.issues:
-                # Parse span (format: "start:end")
-                span_parts = issue.span.split(':')
-                if len(span_parts) == 2 and span_parts[0].isdigit():
-                    start = int(span_parts[0])
-                    end = int(span_parts[1])
-                    issues.append({
-                        'id': issue.id,
-                        'type': issue.issue_type,
-                        'start': start,
-                        'end': end,
-                        'comment': issue.comment,
-                        'span': issue.span
-                    })
+                parts = issue.span.split(":")
+                if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                    start, end = int(parts[0]), int(parts[1])
                 else:
-                    # Handle special spans like "section:sammendrag"
-                    issues.append({
-                        'id': issue.id,
-                        'type': issue.issue_type,
-                        'start': -1,
-                        'end': -1,
-                        'comment': issue.comment,
-                        'span': issue.span
-                    })
-        
-        # Sort issues by position
-        issues.sort(key=lambda x: x['start'])
-        
-        return render_template('report_detail.html', 
-                             report=report, 
-                             qa_result=qa_result, 
-                             issues=issues)
+                    start, end = -1, -1
+                issues.append({
+                    "id": issue.id,
+                    "type": issue.issue_type,
+                    "start": start,
+                    "end": end,
+                    "comment": issue.comment,
+                    "span": issue.span,
+                })
+        issues.sort(key=lambda x: x["start"])
+        return render_template(
+            "report_detail.html", report=report, qa_result=qa_result, issues=issues,
+            review=qa_result.review if qa_result else None,
+            ground_truth=reviews.ground_truth(qa_result) if qa_result else None,
+            quality_levels=config.QUALITY_LEVELS,
+        )
     finally:
         db.close()
 
-@app.route('/evaluate', methods=['POST'])
-def evaluate_reports():
-    """Run QA evaluation on unevaluated reports."""
-    try:
-        evaluator = QAEvaluator()
-        # Modified to evaluate uploaded files
-        evaluator.run_evaluation_on_uploads()
-        
-        return jsonify({
-            'success': True,
-            'message': 'QA evaluation completed successfully'
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': str(e)
-        }), 500
 
-@app.route('/api/report/<int:report_id>/issues')
-def get_report_issues(report_id):
-    """Get issues for a specific report (AJAX endpoint)."""
+@app.route("/report/<int:report_id>/review", methods=["POST"])
+def review_report(report_id):
+    """Record a reviewer's accept/override decision on a report's QA result."""
+    payload = request.get_json(silent=True) or {}
     db = get_db()
     try:
         qa_result = db.query(QAResult).filter(QAResult.report_id == report_id).first()
-        
         if not qa_result:
-            return jsonify({'issues': []})
-        
-        issues = []
-        for issue in qa_result.issues:
-            issues.append({
-                'id': issue.id,
-                'type': issue.issue_type,
-                'span': issue.span,
-                'comment': issue.comment
-            })
-        
-        return jsonify({'issues': issues})
+            return jsonify({"success": False,
+                            "message": "Report has no QA result to review yet"}), 400
+        try:
+            review = reviews.record_review(
+                db, qa_result,
+                decision=payload.get("decision", ""),
+                corrected_quality=payload.get("corrected_quality"),
+                note=payload.get("note"),
+            )
+        except ValueError as exc:
+            return jsonify({"success": False, "message": str(exc)}), 400
+
+        return jsonify({"success": True, "message": "Review saved",
+                        "decision": review.decision,
+                        "corrected_quality": review.corrected_quality})
     finally:
         db.close()
 
-@app.route('/api/stats')
-def get_stats():
-    """Get current statistics (AJAX endpoint)."""
+
+@app.route("/curate", methods=["POST"])
+def curate():
+    """Distill reviewer overrides into RAG examples.
+
+    With ``{"report_id": N}`` curates that one report's override; otherwise
+    batch-curates every override not yet in the knowledge base.
+    """
+    payload = request.get_json(silent=True) or {}
+    try:
+        curator = curation.get_curator()
+    except curation.CurationError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+
     db = get_db()
     try:
+        report_id = payload.get("report_id")
+        if report_id is not None:
+            qa_result = db.query(QAResult).filter(QAResult.report_id == report_id).first()
+            review = qa_result.review if qa_result else None
+            if not review or review.decision != "overridden":
+                return jsonify({"success": False,
+                                "message": "No override on this report to curate"}), 400
+            try:
+                example = curation.curate_review(db, review, curator)
+            except curation.CurationError as exc:
+                return jsonify({"success": False, "message": str(exc)}), 500
+            return jsonify({"success": True,
+                            "message": "Correction added to the knowledge base",
+                            "example_id": example.id})
+
+        count = curation.curate_pending(db, curator)
+        message = (f"Added {count} correction(s) to the knowledge base" if count
+                   else "No new corrections to curate")
+        return jsonify({"success": True, "message": message})
+    finally:
+        db.close()
+
+
+@app.route("/evaluate", methods=["POST"])
+def evaluate_reports():
+    """Run QA evaluation on uploaded reports."""
+    payload = request.get_json(silent=True) or {}
+    reevaluate = bool(payload.get("reevaluate", False))
+    try:
+        evaluator = QAEvaluator()
+    except JudgeError as exc:
+        return jsonify({"success": False, "message": str(exc)}), 400
+    try:
+        count = evaluator.run_evaluation_on_uploads(reevaluate=reevaluate)
+    except Exception as exc:
+        return jsonify({"success": False, "message": str(exc)}), 500
+    finally:
+        evaluator.close()
+
+    message = (f"QA evaluation completed on {count} report(s)" if count
+               else "No reports needed evaluation")
+    return jsonify({"success": True, "message": message})
+
+
+@app.route("/api/report/<int:report_id>/issues")
+def get_report_issues(report_id):
+    db = get_db()
+    try:
+        qa_result = db.query(QAResult).filter(QAResult.report_id == report_id).first()
+        if not qa_result:
+            return jsonify({"issues": []})
+        return jsonify({"issues": [
+            {"id": i.id, "type": i.issue_type, "span": i.span, "comment": i.comment}
+            for i in qa_result.issues
+        ]})
+    finally:
+        db.close()
+
+
+@app.route("/api/stats")
+def get_stats():
+    db = get_db()
+    try:
+        counts = _quality_counts(db)
         stats = {
-            'total_reports': db.query(Report).count(),
-            'total_evaluated': db.query(QAResult).count(),
-            'clean': db.query(QAResult).filter(QAResult.final_quality == 'clean').count(),
-            'minor_errors': db.query(QAResult).filter(QAResult.final_quality == 'minor_error').count(),
-            'major_errors': db.query(QAResult).filter(QAResult.final_quality == 'major_error').count(),
-            'pending': db.query(Report).outerjoin(QAResult).filter(QAResult.id == None).count()
+            "total_reports": db.query(Report).count(),
+            "total_evaluated": db.query(QAResult).count(),
+            "clean": counts["clean"],
+            "minor_errors": counts["minor_error"],
+            "major_errors": counts["major_error"],
+            "pending": db.query(Report).outerjoin(QAResult)
+                         .filter(QAResult.id == None).count(),  # noqa: E711
+            "accuracy": reviews.accuracy(db)["accuracy"],
+            **reviews.review_stats(db),
         }
-        
-        # Calculate accuracy
-        if stats['total_evaluated'] > 0:
-            matches = db.query(QAResult).filter(
-                QAResult.final_quality == QAResult.expected_status
-            ).count()
-            stats['accuracy'] = round((matches / stats['total_evaluated']) * 100, 1)
-        else:
-            stats['accuracy'] = 0
-        
-        # Get recent issues
-        recent_issues = db.query(QAIssue).order_by(desc(QAIssue.created_at)).limit(10).all()
-        stats['recent_issues'] = [
-            {
-                'type': issue.issue_type,
-                'comment': issue.comment[:100] + '...' if len(issue.comment) > 100 else issue.comment
-            }
-            for issue in recent_issues
+        recent = db.query(QAIssue).order_by(desc(QAIssue.created_at)).limit(10).all()
+        stats["recent_issues"] = [
+            {"type": i.issue_type,
+             "comment": (i.comment[:100] + "...") if len(i.comment) > 100 else i.comment}
+            for i in recent
         ]
-        
         return jsonify(stats)
     finally:
         db.close()
 
-@app.template_filter('highlight_issues')
+
+# Tokens used to mark highlight boundaries *before* Markdown rendering, then
+# swapped for real <span> tags after. Plain alphanumerics so Markdown leaves
+# them untouched (no underscores → no accidental emphasis).
+_OPEN_RE = re.compile(r"@@IO(\d+)@@")
+_CLOSE_RE = re.compile(r"@@IC\d+@@")
+
+
+@app.template_filter("highlight_issues")
 def highlight_issues(text, issues):
-    """Render report text as HTML with highlighted issue spans."""
+    """Render report Markdown as HTML with issue spans highlighted.
+
+    Highlights are inserted as sentinel tokens, Markdown is rendered, then the
+    tokens become <span> tags. This avoids splicing raw HTML into Markdown
+    source (which corrupted block structure in the old implementation).
+    """
     if not text:
         return ""
 
-    # Apply highlights before Markdown conversion
-    if issues:
-        replacements = []
-        for issue in issues:
-            if issue["start"] >= 0 and issue["end"] > issue["start"]:
-                snippet = text[issue["start"]:issue["end"]]
-                highlighted = (
-                    f'<span class="issue-highlight issue-{issue["type"]}" '
-                    f'data-issue-id="{issue["id"]}" '
-                    f'data-comment="{issue["comment"]}">{snippet}</span>'
-                )
-                replacements.append((issue["start"], issue["end"], highlighted))
+    by_id = {}
+    valid = []
+    for issue in issues or []:
+        start, end = issue.get("start", -1), issue.get("end", -1)
+        if start is not None and 0 <= start < end <= len(text):
+            valid.append(issue)
+            by_id[str(issue.get("id"))] = issue
 
-        # Sort and apply in reverse order
-        replacements.sort(key=lambda x: x[0], reverse=True)
-        for start, end, replacement in replacements:
-            text = text[:start] + replacement + text[end:]
+    # Insert tokens from the end backwards so earlier offsets stay valid.
+    for issue in sorted(valid, key=lambda i: i["start"], reverse=True):
+        s, e, tid = issue["start"], issue["end"], issue.get("id")
+        text = f"{text[:s]}@@IO{tid}@@{text[s:e]}@@IC{tid}@@{text[e:]}"
 
-    # Now convert Markdown to HTML
-    html = markdown.markdown(
-        text,
-        extensions=["extra", "sane_lists"],
-        output_format="html5",
-        extension_configs={
-        "markdown.extensions.extra": {"markdown_in_html": True}
-        }
+    html = markdown.markdown(text, extensions=["extra", "sane_lists"], output_format="html5")
+
+    def open_repl(match):
+        issue = by_id.get(match.group(1), {})
+        itype = "major" if issue.get("type") == "major" else "minor"
+        return (f'<span class="issue-highlight issue-{itype}" '
+                f'data-issue-id="{escape(match.group(1))}" '
+                f'data-comment="{escape(str(issue.get("comment", "")))}">')
+
+    html = _OPEN_RE.sub(open_repl, html)
+    html = _CLOSE_RE.sub("</span>", html)
+
+    clean_html = bleach.clean(
+        html,
+        tags=["p", "br", "ul", "ol", "li", "strong", "em", "code", "pre",
+              "blockquote", "h1", "h2", "h3", "h4", "h5", "h6", "hr", "span"],
+        attributes={"span": ["class", "data-issue-id", "data-comment"]},
+        strip=True,
     )
+    return Markup(clean_html)
 
-    return Markup(html)
 
-
-if __name__ == '__main__':
-    # Ensure data directory exists
-    Path('data').mkdir(exist_ok=True)
-    Path('data/uploads').mkdir(exist_ok=True)
-    
-    # Initialize database if needed
-    Base.metadata.create_all(engine)
-    
-    # Run the app
-    app.run(debug=True, port=5000)
+if __name__ == "__main__":
+    app.run(debug=config.FLASK_DEBUG, port=config.FLASK_PORT)
