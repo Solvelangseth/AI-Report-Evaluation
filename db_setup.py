@@ -231,75 +231,105 @@ def seed_rag_examples(db_url: str = config.DB_URL) -> int:
     return inserted
 
 
+# Reference content grounded in the public Forskrift til avhendingslova (tryggere
+# bolighandel), FOR-2021-06-08-1850, kap. 2 (Minstekrav til tilstandsrapporter,
+# §§ 2-1–2-23). Section text is paraphrased/abbreviated from Lovdata and should be
+# verified against the source for production use. NS 3600/NS 3424 are copyrighted and
+# only referenced, not reproduced.
+_REGULATION_SOURCE = "Forskrift til avhendingslova FOR-2021-06-08-1850 (lovdata.no)"
+_REGULATION_REFERENCES = [
+    {
+        "title": "Tilstandsgrader TG0–TG3 (NS 3424 / NS 3600)",
+        "topic": "tilstandsgrad",
+        "quality_label": "reference",
+        "report_excerpt": (
+            "§ 2-23 Fastsetting av tilstandsgrad: TG0 gis når bygningsdelen ikke har "
+            "noen avvik og er tilnærmet ny. TG1: mindre/moderate avvik (normal slitasje). "
+            "TG2: vesentlige avvik. TG3: store eller alvorlige avvik. TGiU: ikke undersøkt "
+            "eller ikke tilgjengelig."
+        ),
+        "guidance": (
+            "Map severity to condition grade: TG0/TG1 ≈ clean, TG2 ≈ minor/major "
+            "(substantial, tiltak på sikt), TG3 ≈ major (alvorlig, strakstiltak). A finding "
+            f"graded serious but without urgency, cause or cost is inconsistent. Kilde: {_REGULATION_SOURCE} § 2-23."
+        ),
+    },
+    {
+        "title": "Minstekrav til tilstandsrapport (forskrift til avhendingslova kap. 2)",
+        "topic": "minstekrav",
+        "quality_label": "reference",
+        "report_excerpt": (
+            "§ 2-22 Resultatet av undersøkelsene: Det skal fastsettes en tilstandsgrad for "
+            "det enkelte rommet eller den enkelte bygningsdelen. Årsak og konsekvens av "
+            "avvik skal beskrives, og for bygningsdeler med laveste tilstandsgrad (TG3) "
+            "skal det gis et anslag på utbedringskostnader."
+        ),
+        "guidance": (
+            "Flag a major issue when a serious deviation (TG2/TG3) is reported without "
+            "cause (årsak), consequence (konsekvens), recommended measure or a cost "
+            f"estimate. Kilde: {_REGULATION_SOURCE} § 2-22."
+        ),
+    },
+    {
+        "title": "Kostnadsoverslag og konsistens",
+        "topic": "kostnadsestimat",
+        "quality_label": "reference",
+        "report_excerpt": (
+            "§ 2-22 krever anslag på utbedringskostnader for bygningsdeler med tilstandsgrad "
+            "TG3. Anbefalte tiltak skal stå i forhold til alvorlighetsgrad."
+        ),
+        "guidance": (
+            "Expect a concrete cost figure (kr) for TG3 findings; recommendations should "
+            f"match severity: strakstiltak for TG3, planlagt vedlikehold for TG2. Kilde: {_REGULATION_SOURCE} § 2-22."
+        ),
+    },
+    {
+        "title": "Krav til undersøkte rom og bygningsdeler (forskrift kap. 2)",
+        "topic": "undersøkelse",
+        "quality_label": "reference",
+        "report_excerpt": (
+            "Kap. 2 krever undersøkelse av bl.a.: våtrom (§ 2-2), kjøkken (§ 2-3), vann- og "
+            "avløpsrør (§ 2-4), varmtvannsbereder (§ 2-5), ventilasjon (§ 2-8), tak­"
+            "konstruksjon og skorstein (§ 2-9), loft (§ 2-10), yttervegger (§ 2-11), vinduer "
+            "og ytterdører (§ 2-12), balkonger (§ 2-13), krypkjeller (§ 2-14), rom under "
+            "terreng (§ 2-15), byggegrunn og drenering (§ 2-16), terrengforhold (§ 2-17), "
+            "elektrisk anlegg (§ 2-18) og oppmåling av areal BRA etter NS 3940 (§ 2-20)."
+        ),
+        "guidance": (
+            "A thorough report covers the relevant building parts above, each with a "
+            "condition grade. Flag major gaps when key wet-room, roof, basement or drainage "
+            f"assessments are absent. Kilde: {_REGULATION_SOURCE} kap. 2."
+        ),
+    },
+]
+
+
 def seed_regulations(db_url: str = config.DB_URL) -> int:
-    """Insert public Norwegian regulation references into the RAG store.
+    """Upsert public Norwegian regulation references into the RAG store.
 
-    These are reference entries (source='regulation') the judge and agent can
-    retrieve to ground evaluations in the real standards. Sourced from the public
-    forskrift til avhendingslova and widely published tilstandsgrad definitions —
-    the NS 3600/NS 3424 standards themselves are copyrighted and not reproduced.
+    Reference entries (source='regulation') the judge and agent retrieve to ground
+    evaluations in the real standards. Refreshes content in place (re-embedding on
+    change) and is idempotent: re-running with unchanged content returns 0.
     """
-    references = [
-        {
-            "title": "Tilstandsgrader TG0–TG3 (NS 3424 / NS 3600)",
-            "topic": "tilstandsgrad",
-            "quality_label": "reference",
-            "report_excerpt": (
-                "TG0: ingen avvik, tilnærmet ny. TG1: mindre/moderate avvik, normal "
-                "slitasje. TG2: vesentlige avvik, tiltak nødvendig på kort/mellomlang "
-                "sikt. TG3: store/alvorlige avvik, strakstiltak. TGiU: ikke undersøkt."
-            ),
-            "guidance": (
-                "Map severity to condition grade: TG0/TG1 ≈ clean, TG2 ≈ minor/major "
-                "(substantial), TG3 ≈ major (serious, immediate action). A finding graded "
-                "serious but described without urgency, cause or cost is inconsistent."
-            ),
-        },
-        {
-            "title": "Minstekrav til tilstandsrapport (forskrift til avhendingslova kap. 2)",
-            "topic": "minstekrav",
-            "quality_label": "reference",
-            "report_excerpt": (
-                "For rom/bygningsdeler med tilstandsgrad TG2 eller TG3 skal årsak, "
-                "konsekvens, anbefalt tiltak og et kostnadsoverslag oppgis. Krav til "
-                "undersøkelse av våtrom (hulltaking/fuktmåling), tak og loft, kjeller og "
-                "rom under bakken, samt drenering. Arealer (BRA) skal oppgis."
-            ),
-            "guidance": (
-                "Flag a major issue when a serious deviation is reported without cause, "
-                "consequence, recommended measure or cost. Flag when required assessment "
-                "areas (wet rooms, roof, basement/drainage) or area figures are missing."
-            ),
-        },
-        {
-            "title": "Kostnadsoverslag og konsistens",
-            "topic": "kostnadsestimat",
-            "quality_label": "reference",
-            "report_excerpt": (
-                "Forskriften krever kostnadsoverslag for utbedring av rom/bygningsdeler "
-                "med laveste tilstandsgrad (TG3). Anbefalinger skal stå i forhold til "
-                "alvorlighetsgrad."
-            ),
-            "guidance": (
-                "Expect a concrete cost figure (kr) for the most serious deviations, and "
-                "recommendations that match severity: strakstiltak for TG3, planned "
-                "maintenance for TG2."
-            ),
-        },
-    ]
-
     session = get_session(db_url)
-    inserted = 0
+    fields = ("topic", "quality_label", "report_excerpt", "guidance")
+    changed = 0
     try:
-        for ref in references:
-            if session.query(RAGExample).filter_by(title=ref["title"]).first():
-                continue
-            session.add(RAGExample(source="regulation", **ref))
-            inserted += 1
+        for ref in _REGULATION_REFERENCES:
+            existing = session.query(RAGExample).filter_by(title=ref["title"]).first()
+            if existing is None:
+                session.add(RAGExample(source="regulation", **ref))
+                changed += 1
+            elif existing.source != "regulation" or any(getattr(existing, f) != ref[f] for f in fields):
+                for f in fields:
+                    setattr(existing, f, ref[f])
+                existing.source = "regulation"
+                existing.embedding = None  # content changed → re-embed lazily
+                changed += 1
         session.commit()
     finally:
         session.close()
-    return inserted
+    return changed
 
 
 if __name__ == "__main__":
