@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 
 from sqlalchemy import (
-    create_engine, inspect, text, Column, Integer, String, Text,
+    create_engine, inspect, text, Column, Integer, Float, String, Text,
     DateTime, ForeignKey
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker, Session
@@ -131,6 +131,90 @@ class RAGExample(Base):
         return f"<RAGExample(id={self.id}, title='{self.title}', quality='{self.quality_label}')>"
 
 
+class CaptureSession(Base):
+    """A site-visit capture: transcript + photos that produced a draft report.
+
+    The front half of the authoring flow (voice + photos → findings → draft).
+    The composed draft itself lives in ``reports`` (source='authored'); this row
+    keeps the raw capture inputs linked to it for traceability and re-runs.
+    """
+    __tablename__ = "capture_sessions"
+
+    id = Column(Integer, primary_key=True)
+    title = Column(String(255), nullable=False)
+    audio_filename = Column(String(255))                 # stored audio, if uploaded
+    transcript_text = Column(Text)                       # uploaded/edited transcript input
+    provider = Column(String(50))                        # provider used for intake
+    # open → processing → <verdict> | failed. ('draft' kept for one-shot saves.)
+    status = Column(String(50), default="open")
+    error = Column(Text)                                 # failure detail, if status='failed'
+    report_id = Column(Integer, ForeignKey("reports.id"))  # the produced draft report
+    created_at = Column(DateTime, default=_utcnow)
+
+    report = relationship("Report")
+    segments = relationship("TranscriptSegment", back_populates="session",
+                            cascade="all, delete-orphan", order_by="TranscriptSegment.start_s")
+    media = relationship("MediaItem", back_populates="session",
+                         cascade="all, delete-orphan", order_by="MediaItem.timestamp")
+    findings = relationship("SessionFinding", back_populates="session",
+                            cascade="all, delete-orphan", order_by="SessionFinding.order_index")
+
+    def __repr__(self):
+        return f"<CaptureSession(id={self.id}, title='{self.title}', status='{self.status}')>"
+
+
+class TranscriptSegment(Base):
+    """One timestamped utterance from a capture session's transcript."""
+    __tablename__ = "transcript_segments"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("capture_sessions.id"), nullable=False)
+    start_s = Column(Float, nullable=False)   # seconds from start of recording
+    end_s = Column(Float, nullable=False)
+    text = Column(Text, nullable=False, default="")
+
+    session = relationship("CaptureSession", back_populates="segments")
+
+
+class MediaItem(Base):
+    """A photo taken during a capture session, keyed to the recording timeline."""
+    __tablename__ = "media_items"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("capture_sessions.id"), nullable=False)
+    filename = Column(String(255))            # stored image filename (in uploads)
+    timestamp = Column(Float, nullable=False, default=0.0)  # seconds from recording start
+    caption = Column(Text, default="")
+    category = Column(String(50))             # category slug (see categories.py)
+
+    session = relationship("CaptureSession", back_populates="media")
+
+
+class SessionFinding(Base):
+    """A structured finding extracted from a capture, editable before composing.
+
+    The persisted, human-editable form of `authoring.Finding`. The inspector
+    reviews/corrects these on the web app, then recomposes the draft from the
+    edited set — the "go deeper on the computer" step.
+    """
+    __tablename__ = "session_findings"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("capture_sessions.id"), nullable=False)
+    order_index = Column(Integer, default=0)
+    part = Column(String(100), nullable=False, default="generelt")
+    observation = Column(Text, nullable=False, default="")
+    measurement = Column(Text, default="")
+    cause = Column(Text, default="")
+    consequence = Column(Text, default="")
+    recommendation = Column(Text, default="")
+    severity = Column(String(10), default="TG2")
+    photo_filename = Column(String(255))   # primary evidence photo, if any
+    created_at = Column(DateTime, default=_utcnow)
+
+    session = relationship("CaptureSession", back_populates="findings")
+
+
 # --- Engine / session helpers ---
 # Columns added after the initial schema. SQLite's create_all won't ALTER an
 # existing table, so we add them by hand for databases created before they
@@ -139,6 +223,8 @@ _ADDED_COLUMNS = {
     "reports": {"source": "VARCHAR(50) DEFAULT 'generated'"},
     "rag_examples": {"embedding": "TEXT", "source": "VARCHAR(50) DEFAULT 'seed'"},
     "reviews": {"rag_example_id": "INTEGER"},
+    "capture_sessions": {"transcript_text": "TEXT", "error": "TEXT"},
+    "media_items": {"category": "VARCHAR(50)"},
 }
 
 
@@ -159,7 +245,17 @@ def _apply_migrations(engine) -> None:
 def get_engine(db_url: str = config.DB_URL):
     """Return a cached engine for ``db_url``, creating/upgrading tables on first use."""
     config.ensure_dirs()
-    engine = create_engine(db_url, echo=False)
+    # ``check_same_thread=False`` lets the background finalize worker share the
+    # cached engine with the request thread (SQLite only).
+    is_sqlite = db_url.startswith("sqlite")
+    connect_args = {"check_same_thread": False} if is_sqlite else {}
+    engine = create_engine(db_url, echo=False, connect_args=connect_args)
+    if is_sqlite and ":memory:" not in db_url:
+        # WAL lets readers (status polls) run concurrently with the background
+        # writer; busy_timeout makes a blocked writer wait instead of erroring.
+        with engine.begin() as conn:
+            conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+            conn.exec_driver_sql("PRAGMA busy_timeout=5000")
     Base.metadata.create_all(engine)
     _apply_migrations(engine)
     return engine

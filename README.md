@@ -108,6 +108,33 @@ implementations, so the pipeline runs and is tested without an API key.
 Calibration of the judge is guarded by `eval_harness.py` (labelled reports with
 expected verdicts; run `LLM_PROVIDER=openai python eval_harness.py`).
 
+## Capture → draft (voice + photos)
+
+A site visit can be turned straight into a draft. The inspector narrates while
+taking **categorized** photos; the system pairs each photo to what was being said,
+extracts structured findings (vision-grounded), then runs the authoring pipeline:
+
+```
+voice + timestamped photos → transcript → pairing → vision extraction
+   → List[Finding] → cost + compose + QA → draft report
+```
+
+`Finding` is the seam — the capture front half (`capture.py`, `pairing.py`,
+`extraction.py`, `intake.py`) feeds the existing authoring/QA back half unchanged.
+Everything runs offline with `LLM_PROVIDER=fake`; with a real provider, photos are
+read by Claude/OpenAI vision (e.g. a moisture reading on a wall becomes the finding's
+measurement).
+
+- **Web**: `/capture` (paste a transcript + add photo rows), `/sessions` (browse),
+  `/session/<id>` (transcript, photos, **editable findings + Recompose**).
+- **Mobile capture API** (for the native iOS client in `ios/`): token-gated REST —
+  `POST /api/sessions` → `POST /api/sessions/{id}/photos|audio|transcript` →
+  `POST /api/sessions/{id}/finalize` (`{"background":true}` to process async and poll
+  `GET /api/sessions/{id}`). Per-photo **category** (`GET /api/categories`) is a strong
+  building-part prior. Set `CAPTURE_API_TOKEN` to require auth.
+- **iOS app** (`ios/`): SwiftUI capture client — record voice, category picker, camera
+  button, upload + poll. Scaffold; needs Xcode (see `ios/README.md`).
+
 ## Rules vs. LLM, and regulation grounding
 
 The deterministic **rules** only flag *objective* problems (missing/misordered

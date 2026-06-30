@@ -39,6 +39,7 @@ class Finding(BaseModel):
     consequence: str = ""
     recommendation: str = ""
     severity: str = "TG2"          # TG0..TG3
+    photo_refs: List[str] = []     # evidence photo filenames this finding came from
 
     def search_text(self) -> str:
         return f"{self.part} {self.observation} {self.recommendation}"
@@ -272,6 +273,8 @@ class AuthoringResult(BaseModel):
     report_text: str
     costs: List[CostEstimate]
     final_quality: str
+    rule_quality: str = ""
+    llm_quality: str = ""
     issues: list
     revisions: int
 
@@ -296,4 +299,6 @@ class AuthoringPipeline:
             revisions += 1
         return AuthoringResult(report_text=draft, costs=costs,
                                final_quality=result["final_quality"],
+                               rule_quality=result.get("rule_quality", ""),
+                               llm_quality=result.get("llm_quality", ""),
                                issues=result["issues"], revisions=revisions)

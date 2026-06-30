@@ -66,8 +66,13 @@ EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "256"))  # used by the fake embed
 FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY")
 FLASK_PORT = int(os.getenv("FLASK_PORT", "5000"))
 FLASK_DEBUG = _flag("FLASK_DEBUG", True)
-MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16 MB
+MAX_CONTENT_LENGTH = 64 * 1024 * 1024  # 64 MB (audio recordings can be large)
 ALLOWED_EXTENSIONS = {"txt", "pdf", "docx", "json"}
+
+# --- Mobile capture API ---
+# Bearer token the iOS capture client must send. When unset the API is open
+# (dev/offline). Set CAPTURE_API_TOKEN in production.
+CAPTURE_API_TOKEN = os.getenv("CAPTURE_API_TOKEN")
 
 # Report quality labels, ordered from best to worst.
 QUALITY_LEVELS = ("clean", "minor_error", "major_error")

@@ -60,7 +60,38 @@ verdict → `qa_master` persists it. Modules are flat (no package).
   unit-price reference) → `Composer` (assembles the six sections per the standard) →
   `QAEngine` evaluation → revise loop. Agents are provider-agnostic with `fake` offline
   impls; the eval stage reuses the judge. Cost figures are legally relevant — labelled
-  indicative and must be verified (`prices.DISCLAIMER`). Not yet wired to web/CLI.
+  indicative and must be verified (`prices.DISCLAIMER`). Wired to the web + capture API
+  via `intake.py` (below); `Finding` is the seam every input path produces.
+- **Capture → authoring (the voice+photos pipeline).** A site visit becomes a draft:
+  `voice + categorized photos → transcript → pairing → vision extraction → List[Finding]
+  → AuthoringPipeline`. `Finding` is the contract joining the new front half to the
+  existing back half — nothing in authoring/QA changed.
+  - **`capture.py`** — `Transcript`/`TranscriptSegment`/`Photo` models; `FakeTranscriber`
+    (reads a `*.txt` sidecar, offline) + `OpenAITranscriber` (Whisper, Norwegian).
+    `parse_transcript(text)` is the shared parser for the UI transcript box and sidecars.
+  - **`pairing.py`** — joins photos to segments by timestamp → `ContextBundle`. With
+    `standalone_orphans=True` (the intake default), a photo shot in silence gets its OWN
+    bundle instead of mis-attaching to nearby speech (so a category-tagged shot still seeds
+    a finding).
+  - **`extraction.py`** — `ContextBundle → Finding`. `FakeExtractor` (keyword heuristics) +
+    `AnthropicExtractor`/`OpenAIExtractor` **vision** (send the segment's photos; supported
+    image types only, HEIC skipped, capped at `_MAX_IMAGES`; an `is_finding` gate drops
+    navigation/small-talk). Injectable `client` for offline tests, like `AgentJudge`. The
+    photo **category** (see below) is a strong `Finding.part` prior.
+  - **`categories.py`** — the 13 capture categories (grounded in forskrift kap. 2); each maps
+    to a `Finding.part`. Drives the iOS picker (`GET /api/categories`).
+  - **`intake.py`** — pure orchestrator (no DB): `run_intake`/`run_from_transcript` (full
+    path) and `author_from_findings` (compose+QA only, used by recompose).
+  - **`capture_store.py`** — the only DB writer for captures. One-shot `save_session` (web
+    form) and incremental `create_session`→`add_photo`/`set_audio`/`set_transcript`→
+    `process_session` (REST API), plus `recompose` (re-draft from edited findings). Persists
+    `TranscriptSegment`s, `SessionFinding`s (editable) and the draft `Report` (source
+    `'authored'`) + `QAResult`.
+  - **Mobile capture API** (`app.py`, `/api/...`): token-gated (`CAPTURE_API_TOKEN`) REST for
+    the native iOS client in `ios/`. Create session → add photos (timestamp+category)/audio/
+    transcript → finalize (`{"background":true}` runs it in a thread; poll `GET`) → edit
+    findings → recompose. Web side: `/sessions` list, `/session/<id>` (transcript, photos,
+    editable findings + recompose), `/capture` form.
 - **`eval_harness.py`** — labelled-report calibration harness (run against a real
   provider) guarding the judge against over/under-flagging regressions.
 - **`reviews.py`** — the human reviewer workflow **and triage**. `triage(qa_result)` →
@@ -102,6 +133,9 @@ verdict → `qa_master` persists it. Modules are flat (no package).
   rather than raising so retrieval degrades to lexical silently.
 - **`db_setup.py`** — SQLAlchemy models over SQLite. One **cached** engine per URL
   (`get_engine` is `lru_cache`'d). UTC timestamps via `datetime.now(timezone.utc)`.
+  SQLite engines run in **WAL** with `check_same_thread=False` + a busy timeout so the
+  background finalize worker (a thread) and request reads don't contend. New columns on
+  existing tables go in `_ADDED_COLUMNS` (create_all won't ALTER); new tables are automatic.
 - **`app.py`** — Flask web layer. The `highlight_issues` filter is the tricky part
   (see below).
 
@@ -109,8 +143,9 @@ verdict → `qa_master` persists it. Modules are flat (no package).
 
 - **DB is the single source of truth.** There are no JSON side-files — generation and
   QA write only to SQLite. Don't reintroduce `data/reports/` or `data/qa_results/`.
-- **`Report.source`** (`'generated'` | `'upload'`) distinguishes origin — not the
-  `model` column. `run_evaluation_on_uploads()` filters on `source='upload'`.
+- **`Report.source`** (`'generated'` | `'upload'` | `'authored'`) distinguishes origin —
+  not the `model` column. `run_evaluation_on_uploads()` filters on `source='upload'`;
+  capture drafts are `'authored'` and reuse the report detail/highlight/review views.
 - **Issue `span`** is a string: usually `"start:end"` char offsets into `report_text`,
   but rule checks emit `"section:<name>"` or `"0:0"` when there's no precise location.
   Code consuming spans must handle both.
