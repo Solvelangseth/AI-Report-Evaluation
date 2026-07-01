@@ -15,6 +15,7 @@ from fpdf.enums import XPos, YPos
 
 import config
 import prices
+import tg_summary
 from qa_engine import extract_sections
 
 _SECTION_TITLES = {
@@ -66,6 +67,22 @@ def build_report_pdf(report, capture_session=None) -> bytes:
     _write(pdf, 6, _latin1(f"{state} - QA: {report.status.replace('_', ' ')}"))
     pdf.set_text_color(0, 0, 0)
     pdf.ln(3)
+
+    # Tilstandsgrad overview (authored drafts, from the findings)
+    findings = getattr(capture_session, "findings", None) if capture_session else None
+    summary = tg_summary.summarize(findings) if findings else None
+    if summary and summary["parts"]:
+        pdf.set_font("Helvetica", "B", 12)
+        _write(pdf, 7, _latin1(f"Tilstandsgrader (høyeste: {summary['highest']})"))
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(120, 7, _latin1("Bygningsdel"), border=1)
+        pdf.cell(30, 7, "TG", border=1, align="C", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.set_font("Helvetica", "", 10)
+        for row in summary["parts"]:
+            pdf.cell(120, 7, _latin1(row["part"]), border=1)
+            pdf.cell(30, 7, row["tg"], border=1, align="C",
+                     new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+        pdf.ln(4)
 
     # Sections (in the standard order; skip any that are absent)
     sections = extract_sections(report.report_text or "")

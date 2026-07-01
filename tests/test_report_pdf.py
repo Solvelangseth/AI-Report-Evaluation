@@ -85,3 +85,23 @@ def test_pdf_includes_evidence_photos_for_authored(client, session):
                        media=[{"filename": "ev.png", "timestamp": 5.0, "caption": "vegg"}])
     resp = client.get(f"/report/{cap.report_id}/pdf")
     assert resp.status_code == 200 and resp.get_data()[:5] == b"%PDF-"
+
+
+def test_pdf_includes_tg_summary_for_authored(client, session):
+    import PyPDF2, io as _io
+    from db_setup import Report as R
+    result = run_from_transcript(
+        parse_transcript("0-15: Fukt i kjeller 22 %.\n15-30: Bad rate ved sluk."),
+        [], provider="fake", rag=None)
+    cap = save_session(session, "TG PDF", result, provider="fake")
+    report = session.query(R).filter_by(id=cap.report_id).first()
+    txt = PyPDF2.PdfReader(_io.BytesIO(report_pdf.build_report_pdf(report, cap))).pages[0].extract_text()
+    assert "Tilstandsgrader" in txt and "Bygningsdel" in txt
+
+
+def test_report_page_shows_tg_summary(client, session):
+    result = run_from_transcript(parse_transcript("0-15: Fukt i kjeller 22 %."),
+                                 [], provider="fake", rag=None)
+    cap = save_session(session, "TG web", result, provider="fake")
+    html = client.get(f"/report/{cap.report_id}").get_data(as_text=True)
+    assert "Tilstandsgrader" in html
