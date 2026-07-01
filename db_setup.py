@@ -149,7 +149,14 @@ class CaptureSession(Base):
     status = Column(String(50), default="open")
     error = Column(Text)                                 # failure detail, if status='failed'
     report_id = Column(Integer, ForeignKey("reports.id"))  # the produced draft report
+    # Sign-off: a certified bygningssakkyndig freezes the draft into the report.
+    signed_by = Column(String(255))
+    signed_at = Column(DateTime)
     created_at = Column(DateTime, default=_utcnow)
+
+    @property
+    def is_signed(self) -> bool:
+        return self.signed_at is not None
 
     report = relationship("Report")
     segments = relationship("TranscriptSegment", back_populates="session",
@@ -223,7 +230,8 @@ _ADDED_COLUMNS = {
     "reports": {"source": "VARCHAR(50) DEFAULT 'generated'"},
     "rag_examples": {"embedding": "TEXT", "source": "VARCHAR(50) DEFAULT 'seed'"},
     "reviews": {"rag_example_id": "INTEGER"},
-    "capture_sessions": {"transcript_text": "TEXT", "error": "TEXT"},
+    "capture_sessions": {"transcript_text": "TEXT", "error": "TEXT",
+                         "signed_by": "VARCHAR(255)", "signed_at": "DATETIME"},
     "media_items": {"category": "VARCHAR(50)"},
 }
 

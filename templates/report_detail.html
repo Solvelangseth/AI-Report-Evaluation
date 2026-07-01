@@ -28,6 +28,11 @@
                     QA Result: {{ qa_result.final_quality.replace('_', ' ').title() }}
                 </span>
                 {% endif %}
+                {% if capture_session and capture_session.is_signed %}
+                <span class="status-badge status-clean">
+                    <i class="fas fa-signature mr-1"></i>Signert: {{ capture_session.signed_by }}
+                </span>
+                {% endif %}
                 <a href="/report/{{ report.id }}/pdf" target="_blank"
                    class="bg-gray-800 hover:bg-black text-white px-3 py-2 rounded-md text-sm font-medium">
                     <i class="fas fa-file-pdf mr-1"></i> PDF

@@ -321,6 +321,9 @@ def _session_json(capture_row):
         "report_id": capture_row.report_id,
         "verdict": capture_row.status if capture_row.report_id else None,
         "error": capture_row.error,
+        "is_signed": capture_row.is_signed,
+        "signed_by": capture_row.signed_by,
+        "signed_at": capture_row.signed_at.isoformat() if capture_row.signed_at else None,
     }
 
 
@@ -444,6 +447,8 @@ def api_finalize_session(session_id):
         capture_row = _load_session(db, session_id)
         if not capture_row:
             return jsonify({"success": False, "message": "Session not found"}), 404
+        if capture_row.is_signed:
+            return jsonify({"success": False, "message": "Session is signed and locked"}), 409
 
         if payload.get("background"):
             capture_row.status = "processing"
@@ -514,6 +519,8 @@ def api_add_finding(session_id):
         capture_row = _load_session(db, session_id)
         if not capture_row:
             return jsonify({"success": False, "message": "Session not found"}), 404
+        if capture_row.is_signed:
+            return jsonify({"success": False, "message": "Session is signed and locked"}), 409
         nxt = max((f.order_index for f in capture_row.findings), default=-1) + 1
         finding = SessionFinding(
             session_id=session_id, order_index=nxt,
@@ -538,6 +545,8 @@ def api_update_finding(session_id, finding_id):
         finding = db.query(SessionFinding).filter_by(id=finding_id, session_id=session_id).first()
         if not finding:
             return jsonify({"success": False, "message": "Finding not found"}), 404
+        if finding.session.is_signed:
+            return jsonify({"success": False, "message": "Session is signed and locked"}), 409
         if "severity" in payload and payload["severity"] not in _TG_VALUES:
             return jsonify({"success": False, "message": "Invalid severity"}), 400
         for field in _FINDING_FIELDS:
@@ -557,6 +566,8 @@ def api_delete_finding(session_id, finding_id):
         finding = db.query(SessionFinding).filter_by(id=finding_id, session_id=session_id).first()
         if not finding:
             return jsonify({"success": False, "message": "Finding not found"}), 404
+        if finding.session.is_signed:
+            return jsonify({"success": False, "message": "Session is signed and locked"}), 409
         db.delete(finding)
         db.commit()
         return jsonify({"success": True})
@@ -573,11 +584,34 @@ def api_recompose(session_id):
         capture_row = _load_session(db, session_id)
         if not capture_row:
             return jsonify({"success": False, "message": "Session not found"}), 404
+        if capture_row.is_signed:
+            return jsonify({"success": False, "message": "Session is signed and locked"}), 409
         try:
             capture_store.recompose(db, capture_row, provider=config.LLM_PROVIDER,
                                     rag=RAGPipeline(db))
         except Exception as exc:  # noqa: BLE001
             return jsonify({"success": False, "message": str(exc)}), 422
+        return jsonify({"success": True, **_session_json(capture_row)})
+    finally:
+        db.close()
+
+
+@app.route("/api/sessions/<int:session_id>/sign", methods=["POST"])
+@require_api_token
+def api_sign_session(session_id):
+    """Sign the draft into the final report (records signer + locks editing)."""
+    payload = request.get_json(silent=True) or {}
+    db = get_db()
+    try:
+        capture_row = _load_session(db, session_id)
+        if not capture_row:
+            return jsonify({"success": False, "message": "Session not found"}), 404
+        try:
+            capture_store.sign(db, capture_row, signed_by=payload.get("signed_by", ""))
+        except capture_store.SessionLockedError as exc:
+            return jsonify({"success": False, "message": str(exc)}), 409
+        except capture_store.CaptureStoreError as exc:
+            return jsonify({"success": False, "message": str(exc)}), 400
         return jsonify({"success": True, **_session_json(capture_row)})
     finally:
         db.close()

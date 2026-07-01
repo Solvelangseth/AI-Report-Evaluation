@@ -62,6 +62,16 @@ def test_pdf_route_serves_pdf(client, session):
     assert resp.get_data()[:5] == b"%PDF-"
 
 
+def test_pdf_header_reflects_signature():
+    from datetime import datetime, timezone
+    signed = SimpleNamespace(signed_by="Kari Nordmann",
+                             signed_at=datetime(2026, 7, 1, tzinfo=timezone.utc), media=[])
+    data = report_pdf.build_report_pdf(_fake_report(), signed)
+    import PyPDF2, io as _io
+    txt = PyPDF2.PdfReader(_io.BytesIO(data)).pages[0].extract_text()
+    assert "Signert av Kari Nordmann" in txt and "Utkast" not in txt
+
+
 def test_pdf_includes_evidence_photos_for_authored(client, session):
     # An authored draft with a real photo file → PDF embeds it without error.
     config.ensure_dirs()

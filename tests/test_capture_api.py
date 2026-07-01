@@ -119,6 +119,36 @@ def test_update_finding_rejects_bad_severity(client):
                       json={"severity": "TG9"}).status_code == 400
 
 
+def test_sign_locks_the_session(client):
+    sid = _finalized_session(client)
+    fid = client.get(f"/api/sessions/{sid}/findings").get_json()["findings"][0]["id"]
+
+    # Sign it.
+    r = client.post(f"/api/sessions/{sid}/sign", json={"signed_by": "Kari Nordmann"})
+    body = r.get_json()
+    assert r.status_code == 200 and body["is_signed"] and body["signed_by"] == "Kari Nordmann"
+
+    # Now editing is locked (409 everywhere).
+    assert client.put(f"/api/sessions/{sid}/findings/{fid}",
+                      json={"severity": "TG3"}).status_code == 409
+    assert client.delete(f"/api/sessions/{sid}/findings/{fid}").status_code == 409
+    assert client.post(f"/api/sessions/{sid}/findings", json={"part": "tak"}).status_code == 409
+    assert client.post(f"/api/sessions/{sid}/recompose").status_code == 409
+    assert client.post(f"/api/sessions/{sid}/finalize").status_code == 409
+    # And re-signing is rejected.
+    assert client.post(f"/api/sessions/{sid}/sign", json={"signed_by": "X"}).status_code == 409
+
+
+def test_sign_requires_name_and_processed_report(client):
+    # Unprocessed session → nothing to sign.
+    sid = client.post("/api/sessions", json={"title": "x", "transcript": TRANSCRIPT}
+                      ).get_json()["session_id"]
+    assert client.post(f"/api/sessions/{sid}/sign", json={"signed_by": "A"}).status_code == 400
+    # Processed but empty signer name → 400.
+    client.post(f"/api/sessions/{sid}/finalize")
+    assert client.post(f"/api/sessions/{sid}/sign", json={"signed_by": " "}).status_code == 400
+
+
 def test_background_finalize_processes_async(client):
     import time
     sid = client.post("/api/sessions",

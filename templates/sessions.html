@@ -39,6 +39,9 @@
                         {% else %}
                         <span class="status-badge status-{{ s.status }}">{{ s.status.replace("_", " ") }}</span>
                         {% endif %}
+                        {% if s.is_signed %}
+                        <span class="ml-1 text-green-600" title="Signert av {{ s.signed_by }}"><i class="fas fa-signature"></i></span>
+                        {% endif %}
                     </td>
                     <td class="px-6 py-4 text-sm">
                         {% if s.report_id %}

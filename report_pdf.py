@@ -58,8 +58,12 @@ def build_report_pdf(report, capture_session=None) -> bytes:
     _write(pdf, 9, _latin1(report.topic or "Tilstandsrapport"))
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(110, 110, 110)
-    _write(pdf, 6, _latin1(f"Utkast - {report.created_at:%Y-%m-%d} - "
-                           f"QA: {report.status.replace('_', ' ')}"))
+    signed = getattr(capture_session, "signed_at", None) if capture_session else None
+    if signed:
+        state = f"Signert av {getattr(capture_session, 'signed_by', '') or ''} - {signed:%Y-%m-%d}"
+    else:
+        state = f"Utkast - {report.created_at:%Y-%m-%d}"
+    _write(pdf, 6, _latin1(f"{state} - QA: {report.status.replace('_', ' ')}"))
     pdf.set_text_color(0, 0, 0)
     pdf.ln(3)
 

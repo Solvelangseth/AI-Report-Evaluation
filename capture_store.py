@@ -36,6 +36,10 @@ class CaptureStoreError(RuntimeError):
     """Raised when a session cannot be processed (no transcript/audio, etc.)."""
 
 
+class SessionLockedError(CaptureStoreError):
+    """Raised when editing a signed (locked) session."""
+
+
 # --- conversions ---
 def _finding_to_row(session_id: int, finding: Finding, order: int) -> SessionFinding:
     return SessionFinding(
@@ -197,11 +201,32 @@ def process_session(session, capture_row: CaptureSession, provider: str,
 def recompose(session, capture_row: CaptureSession, provider: str,
               rag=None, max_revisions: int = 1) -> CaptureSession:
     """Re-draft the report from the session's (edited) findings — no re-extraction."""
+    if capture_row.is_signed:
+        raise SessionLockedError("Session is signed and locked.")
     findings = [_row_to_finding(r) for r in capture_row.findings]
     if not findings:
         raise CaptureStoreError("No findings to compose from.")
     authoring = intake.author_from_findings(findings, provider=provider, rag=rag,
                                             max_revisions=max_revisions)
     _persist_report(session, capture_row, authoring, provider)
+    session.commit()
+    return capture_row
+
+
+def sign(session, capture_row: CaptureSession, signed_by: str) -> CaptureSession:
+    """Sign the draft into the final report (bygningssakkyndig approval).
+
+    Freezes the current draft: records who/when and locks findings editing and
+    recompose. Requires a produced report and a non-empty signer name.
+    """
+    if capture_row.is_signed:
+        raise SessionLockedError("Session is already signed.")
+    if not capture_row.report_id:
+        raise CaptureStoreError("Nothing to sign — process the session first.")
+    signed_by = (signed_by or "").strip()
+    if not signed_by:
+        raise CaptureStoreError("A signer name is required.")
+    capture_row.signed_by = signed_by
+    capture_row.signed_at = datetime.now(timezone.utc)
     session.commit()
     return capture_row
