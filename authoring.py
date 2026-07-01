@@ -24,6 +24,7 @@ from pydantic import BaseModel, ValidationError
 
 import config
 import prices
+import tg_summary
 
 
 class AuthoringError(RuntimeError):
@@ -101,7 +102,7 @@ class FakeComposer:
             f"- {c.measure}: {c.low}–{c.high} {c.unit}" for c in costs if c.high
         ) or "- Kostnad ikke fastsatt."
         total_low, total_high = sum(c.low for c in costs), sum(c.high for c in costs)
-        return "\n\n".join([
+        blocks = [
             f"Sammendrag\nBefaringen avdekket {len(findings)} forhold. Høyeste "
             f"tilstandsgrad er {worst}. Se anbefalte tiltak og kostnadsoverslag nedenfor.",
             f"Observasjoner\n{obs}",
@@ -110,7 +111,9 @@ class FakeComposer:
             f"Anbefalinger\n{rec}",
             f"Kostnadsestimat\n{cost_lines}\nSamlet anslag: {total_low}–{total_high} kr. "
             f"{prices.DISCLAIMER}",
-        ])
+        ]
+        tg = tg_summary.as_section(findings)
+        return "\n\n".join(([tg] if tg else []) + blocks)
 
 
 # --- real (LLM) agents ---
@@ -159,6 +162,13 @@ def _compose_prompt(findings: List[Finding], costs: List[CostEstimate], feedback
             f"Write the full tilstandsrapport in Norwegian with the six headings.{fb}")
 
 
+def _with_tg(findings, text: str) -> str:
+    """Prepend the deterministic TG overview section to an LLM-composed report,
+    so the table is always present and accurate regardless of the model."""
+    tg = tg_summary.as_section(findings)
+    return f"{tg}\n\n{text}" if tg else text
+
+
 class _OpenAIBase:
     def __init__(self, api_key: str, model: str):
         from openai import OpenAI
@@ -186,7 +196,7 @@ class OpenAIComposer(_OpenAIBase):
                 model=self.model, temperature=0.4,
                 messages=[{"role": "system", "content": _COMPOSE_SYSTEM},
                           {"role": "user", "content": _compose_prompt(findings, costs, feedback)}])
-            return r.choices[0].message.content
+            return _with_tg(findings, r.choices[0].message.content)
         except Exception as exc:
             raise AuthoringError(f"OpenAI compose failed: {exc}") from exc
 
@@ -221,7 +231,8 @@ class AnthropicComposer:
             r = self.client.messages.create(
                 model=self.model, max_tokens=2048, system=_COMPOSE_SYSTEM,
                 messages=[{"role": "user", "content": _compose_prompt(findings, costs, feedback)}])
-            return next((b.text for b in r.content if getattr(b, "type", None) == "text"), "")
+            text = next((b.text for b in r.content if getattr(b, "type", None) == "text"), "")
+            return _with_tg(findings, text)
         except Exception as exc:
             raise AuthoringError(f"Anthropic compose failed: {exc}") from exc
 

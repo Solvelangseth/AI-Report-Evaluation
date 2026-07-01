@@ -19,6 +19,16 @@ class QABaseline:
         "anbefalinger",
         "kostnadsestimat"
     ]
+
+    # Optional sections that are recognised as section boundaries when present
+    # (so they parse cleanly and aren't folded into a neighbour) but are never
+    # required and not length-policed. Authored reports lead with the TG overview.
+    OPTIONAL_SECTIONS = [
+        "tilstandsgrader"
+    ]
+
+    # Every header the section extractor treats as a boundary.
+    RECOGNIZED_SECTIONS = REQUIRED_SECTIONS + OPTIONAL_SECTIONS
     
     # Forbidden words that indicate poor quality
     FORBIDDEN_WORDS = [

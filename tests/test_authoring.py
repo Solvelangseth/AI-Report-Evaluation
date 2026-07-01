@@ -32,10 +32,20 @@ def test_fake_composer_produces_all_sections():
     costs = [FakeCostAnalyst().estimate(f) for f in FINDINGS]
     report = FakeComposer().compose(FINDINGS, costs)
     secs = extract_sections(report)
-    assert set(secs) == {"sammendrag", "observasjoner", "årsak", "konsekvenser",
-                         "anbefalinger", "kostnadsestimat"}
+    assert {"sammendrag", "observasjoner", "årsak", "konsekvenser",
+            "anbefalinger", "kostnadsestimat"} <= set(secs)
     assert "kr" in secs["kostnadsestimat"]
     assert prices.DISCLAIMER in report  # estimates are labelled indicative
+
+
+def test_fake_composer_includes_tg_section():
+    costs = [FakeCostAnalyst().estimate(f) for f in FINDINGS]
+    report = FakeComposer().compose(FINDINGS, costs)
+    secs = extract_sections(report)
+    assert "tilstandsgrader" in secs
+    assert "Høyeste tilstandsgrad" in secs["tilstandsgrader"]
+    # It leads the report (the standard TG overview comes first).
+    assert report.lstrip().startswith("Tilstandsgrader")
 
 
 def test_pipeline_end_to_end_offline():

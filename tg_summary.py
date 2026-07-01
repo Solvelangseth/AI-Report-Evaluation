@@ -37,3 +37,17 @@ def summarize(findings) -> dict:
     by_grade = {g: sum(1 for x in all_grades if x == g) for g in GRADES}
     return {"parts": parts, "by_grade": by_grade,
             "highest": worst_tg(all_grades), "total": len(all_grades)}
+
+
+def as_section(findings, header: str = "Tilstandsgrader") -> str:
+    """Render the TG overview as a report section (empty string if no findings).
+
+    The composed report leads with this so the deliverable contains the standard
+    condition-grade table, not just a rendered widget.
+    """
+    summary = summarize(findings)
+    if not summary["parts"]:
+        return ""
+    lines = [f"- {row['part']}: {row['tg']}" for row in summary["parts"]]
+    lines.append(f"Høyeste tilstandsgrad: {summary['highest']}")
+    return header + "\n" + "\n".join(lines)

@@ -66,7 +66,7 @@ def _match_section(title: str, had_markup: bool, required: List[str]) -> Optiona
 
 def extract_sections(text: str) -> Dict[str, str]:
     """Split report text into {section_name: content} by recognised headers."""
-    required = [r.lower() for r in QABaseline.REQUIRED_SECTIONS]
+    required = [r.lower() for r in QABaseline.RECOGNIZED_SECTIONS]
     sections: Dict[str, str] = {}
     current: Optional[str] = None
     buffer: List[str] = []
@@ -114,6 +114,8 @@ def rule_based_issues(report_text: str) -> List[Dict]:
 
     rules = QABaseline.STRUCTURE_RULES
     for name, content in sections.items():
+        if name not in QABaseline.REQUIRED_SECTIONS:
+            continue  # optional sections (e.g. tilstandsgrader) aren't length-policed
         length = len(content)
         if length < rules["min_section_length"]:
             issues.append({"type": "minor", "span": f"section:{name}",

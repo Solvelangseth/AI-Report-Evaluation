@@ -33,7 +33,6 @@ import categories
 import intake
 import capture_store
 import report_pdf
-import tg_summary
 from db_setup import (
     get_session, Report, QAResult, QAIssue, CaptureSession, MediaItem, SessionFinding,
     seed_rag_examples, seed_regulations,
@@ -679,8 +678,6 @@ def report_detail(report_id):
         capture_row = (db.query(CaptureSession)
                        .filter(CaptureSession.report_id == report_id).first()
                        if report.source == "authored" else None)
-        tg = (tg_summary.summarize(capture_row.findings)
-              if capture_row and capture_row.findings else None)
         return render_template(
             "report_detail.html", report=report, qa_result=qa_result, issues=issues,
             review=qa_result.review if qa_result else None,
@@ -689,7 +686,7 @@ def report_detail(report_id):
                                           qa_result.llm_quality) if qa_result else None,
             triage=reviews.triage(qa_result) if qa_result else None,
             quality_levels=config.QUALITY_LEVELS,
-            capture_session=capture_row, tg_summary=tg,
+            capture_session=capture_row,
         )
     finally:
         db.close()
