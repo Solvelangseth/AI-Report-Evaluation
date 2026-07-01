@@ -38,6 +38,15 @@ def test_fake_composer_produces_all_sections():
     assert prices.DISCLAIMER in report  # estimates are labelled indicative
 
 
+def test_sammendrag_states_highest_tg():
+    # TGiU must NOT out-rank TG3 (the old naive string-max bug).
+    findings = [Finding(part="tak", observation="ikke tilgjengelig", severity="TGiU"),
+                Finding(part="bad", observation="råte", severity="TG3")]
+    costs = [FakeCostAnalyst().estimate(f) for f in findings]
+    secs = extract_sections(FakeComposer().compose(findings, costs))
+    assert "Høyeste tilstandsgrad er TG3" in secs["sammendrag"]
+
+
 def test_fake_composer_includes_tg_section():
     costs = [FakeCostAnalyst().estimate(f) for f in FINDINGS]
     report = FakeComposer().compose(FINDINGS, costs)

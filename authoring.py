@@ -88,7 +88,8 @@ class FakeComposer:
 
     def compose(self, findings: List[Finding], costs: List[CostEstimate],
                 feedback: str = "") -> str:
-        worst = max((f.severity for f in findings), default="TG1")
+        # Use the proper TG ranking (a naive string max mis-ranks TGiU above TG3).
+        worst = tg_summary.summarize(findings)["highest"] or "TG1"
         obs = "\n".join(
             f"- {f.part}: {f.observation}" + (f" ({f.measurement})" if f.measurement else "")
             for f in findings
@@ -157,8 +158,11 @@ def _compose_prompt(findings: List[Finding], costs: List[CostEstimate], feedback
         f"consequence={f.consequence}; measure={f.recommendation}" for f in findings
     )
     c_lines = "\n".join(f"- {c.part}: {c.measure} {c.low}–{c.high} {c.unit}" for c in costs)
+    highest = tg_summary.summarize(findings)["highest"] or "TG1"
     fb = f"\n\nAddress this reviewer feedback in the revision:\n{feedback}" if feedback else ""
     return (f"FINDINGS:\n{f_lines}\n\nCOST ESTIMATES:\n{c_lines}\n\n"
+            f"Highest condition grade across the property: {highest}. State it explicitly "
+            f"in Sammendrag.\n\n"
             f"Write the full tilstandsrapport in Norwegian with the six headings.{fb}")
 
 
