@@ -15,7 +15,7 @@ from functools import wraps
 
 from flask import (
     Flask, render_template, jsonify, request, redirect, flash, send_from_directory,
-    abort,
+    abort, Response,
 )
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
@@ -32,6 +32,7 @@ import capture
 import categories
 import intake
 import capture_store
+import report_pdf
 from db_setup import (
     get_session, Report, QAResult, QAIssue, CaptureSession, MediaItem, SessionFinding,
     seed_rag_examples, seed_regulations,
@@ -653,6 +654,24 @@ def report_detail(report_id):
             quality_levels=config.QUALITY_LEVELS,
             capture_session=capture_row,
         )
+    finally:
+        db.close()
+
+
+@app.route("/report/<int:report_id>/pdf")
+def download_report_pdf(report_id):
+    """Render a report as a downloadable PDF (with evidence photos for drafts)."""
+    db = get_db()
+    try:
+        report = db.query(Report).filter(Report.id == report_id).first()
+        if not report:
+            return "Report not found", 404
+        capture_row = (db.query(CaptureSession)
+                       .filter(CaptureSession.report_id == report_id).first()
+                       if report.source == "authored" else None)
+        pdf_bytes = report_pdf.build_report_pdf(report, capture_row)
+        return Response(pdf_bytes, mimetype="application/pdf", headers={
+            "Content-Disposition": f'inline; filename="report_{report_id}.pdf"'})
     finally:
         db.close()
 

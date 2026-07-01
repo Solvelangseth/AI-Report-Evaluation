@@ -19,7 +19,7 @@
                 <h1 class="text-3xl font-bold text-gray-900">{{ report.topic|title }}</h1>
                 <p class="text-gray-600 mt-2">Generated on {{ report.created_at.strftime('%B %d, %Y at %H:%M') }}</p>
             </div>
-            <div class="flex space-x-3">
+            <div class="flex items-center space-x-3">
                 <span class="status-badge status-{{ report.status }}">
                     Expected: {{ report.status.replace('_', ' ').title() }}
                 </span>
@@ -28,6 +28,10 @@
                     QA Result: {{ qa_result.final_quality.replace('_', ' ').title() }}
                 </span>
                 {% endif %}
+                <a href="/report/{{ report.id }}/pdf" target="_blank"
+                   class="bg-gray-800 hover:bg-black text-white px-3 py-2 rounded-md text-sm font-medium">
+                    <i class="fas fa-file-pdf mr-1"></i> PDF
+                </a>
             </div>
         </div>
     </div>
