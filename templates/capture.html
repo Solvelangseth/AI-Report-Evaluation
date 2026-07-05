@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block title %}New Inspection - Inspection Report QA{% endblock %}
+
+{% block content %}
+<div class="animate-slide-in max-w-3xl mx-auto">
+    <div class="mb-6">
+        <h1 class="text-3xl font-bold text-gray-900">New Inspection</h1>
+        <p class="text-gray-600 mt-2">
+            Narrate the visit and add timestamped photos. The system pairs each photo to
+            what was being said, extracts findings, and drafts a validated report for you
+            to review and sign.
+        </p>
+    </div>
+
+    {% if error %}
+    <div class="mb-4 bg-red-50 border border-red-200 rounded-md p-4 text-red-800 text-sm">
+        <i class="fas fa-exclamation-circle mr-2"></i>{{ error }}
+    </div>
+    {% endif %}
+
+    <form method="POST" enctype="multipart/form-data" class="bg-white rounded-lg shadow p-6 space-y-6">
+        <!-- Title -->
+        <div>
+            <label for="title" class="block text-sm font-medium text-gray-700 mb-2">Title</label>
+            <input type="text" id="title" name="title" placeholder="e.g. Befaring Storgata 1"
+                   class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+        </div>
+
+        <!-- Transcript -->
+        <div>
+            <label for="transcript" class="block text-sm font-medium text-gray-700 mb-2">
+                Transcript
+            </label>
+            <p class="text-xs text-gray-500 mb-2">
+                One observation per line. Optionally prefix with a time window
+                <code>start-end:</code> (seconds) so photos pair to the right moment.
+            </p>
+            <textarea id="transcript" name="transcript" rows="6"
+                      class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm font-mono text-sm focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="0-15: Vi er i kjelleren. Fuktmåling viser 22 % i vegg ved gulvnivå, manglende drenering.&#10;15-30: På badet er det alvorlig råteskade ved sluk, om lag 0,6 m²."></textarea>
+        </div>
+
+        <!-- Photos -->
+        <div x-data="{ rows: [0], n: 1 }">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Photos (optional)</label>
+            <p class="text-xs text-gray-500 mb-3">
+                Each photo's timestamp (seconds from start) decides which spoken segment it pairs with.
+            </p>
+            <template x-for="(row, idx) in rows" :key="row">
+                <div class="flex flex-wrap items-center gap-2 mb-2">
+                    <input type="file" name="photos" accept="image/*"
+                           class="text-sm flex-1 min-w-[160px]">
+                    <select name="photo_category" class="px-2 py-1 border border-gray-300 rounded-md text-sm">
+                        <option value="">Kategori…</option>
+                        {% for c in categories %}
+                        <option value="{{ c.slug }}">{{ c.label }}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="number" name="photo_timestamp" step="0.1" min="0" placeholder="t (sek)"
+                           class="w-20 px-2 py-1 border border-gray-300 rounded-md text-sm">
+                    <input type="text" name="photo_caption" placeholder="Bildetekst"
+                           class="flex-1 min-w-[120px] px-2 py-1 border border-gray-300 rounded-md text-sm">
+                    <button type="button" @click="rows = rows.filter(r => r !== row)"
+                            class="text-red-500 hover:text-red-700" title="Remove">
+                        <i class="fas fa-times-circle"></i>
+                    </button>
+                </div>
+            </template>
+            <button type="button" @click="rows.push(n++)"
+                    class="mt-1 text-sm text-blue-600 hover:text-blue-800">
+                <i class="fas fa-plus mr-1"></i> Add photo
+            </button>
+        </div>
+
+        <!-- Audio (advanced) -->
+        <details class="border-t pt-4">
+            <summary class="text-sm font-medium text-gray-700 cursor-pointer">
+                Or upload audio instead of a transcript (advanced)
+            </summary>
+            <div class="mt-3">
+                <input type="file" name="audio" accept="audio/*" class="text-sm">
+                <p class="text-xs text-gray-500 mt-2">
+                    Audio is transcribed automatically — requires a real LLM provider
+                    (Whisper). With the offline provider, paste a transcript above instead.
+                </p>
+            </div>
+        </details>
+
+        <div>
+            <button type="submit"
+                    class="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-md font-medium transition-colors">
+                <i class="fas fa-wand-magic-sparkles mr-2"></i> Generate draft report
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -37,7 +37,7 @@
                         <button type="button" id="browseBtn" class="mt-2 bg-blue-100 hover:bg-blue-200 text-blue-700 px-4 py-2 rounded-md text-sm">
                             Browse Files
                         </button>
-                        <p class="text-xs text-gray-400 mt-3">Supported: TXT, PDF, DOC, DOCX, JSON (max 16MB)</p>
+                        <p class="text-xs text-gray-400 mt-3">Supported: TXT, PDF, DOCX, JSON (max 16MB)</p>
                     </div>
                     
                     <!-- File Display (hidden initially) -->
@@ -58,7 +58,7 @@
                 </div>
                 
                 <!-- Hidden file input -->
-                <input type="file" id="fileInput" name="file" class="hidden" accept=".txt,.pdf,.doc,.docx,.json">
+                <input type="file" id="fileInput" name="file" class="hidden" accept=".txt,.pdf,.docx,.json">
             </div>
 
             <!-- Submit Button (hidden initially) -->
@@ -202,12 +202,12 @@ removeBtn.addEventListener('click', (e) => {
 // Handle file selection
 function handleFile(file) {
     // Validate file type
-    const allowedExtensions = ['.txt', '.pdf', '.doc', '.docx', '.json'];
+    const allowedExtensions = ['.txt', '.pdf', '.docx', '.json'];
     const fileName = file.name.toLowerCase();
     const fileExtension = fileName.substring(fileName.lastIndexOf('.'));
     
     if (!allowedExtensions.includes(fileExtension)) {
-        showToast('Invalid file type. Please upload TXT, PDF, DOC, DOCX, or JSON files.', 'error');
+        showToast('Invalid file type. Please upload TXT, PDF, DOCX, or JSON files.', 'error');
         return;
     }
     
@@ -246,7 +246,6 @@ function displayFile(file) {
         case 'pdf':
             fileIcon.className = 'fas fa-file-pdf text-red-600 text-3xl mr-3';
             break;
-        case 'doc':
         case 'docx':
             fileIcon.className = 'fas fa-file-word text-blue-600 text-3xl mr-3';
             break;

@@ -5,6 +5,7 @@ Single source of truth for all QA checks.
 """
 
 from typing import Dict, List, Any
+import re
 
 class QABaseline:
     """Defines the clean baseline for a perfect inspection report."""
@@ -18,6 +19,16 @@ class QABaseline:
         "anbefalinger",
         "kostnadsestimat"
     ]
+
+    # Optional sections that are recognised as section boundaries when present
+    # (so they parse cleanly and aren't folded into a neighbour) but are never
+    # required and not length-policed. Authored reports lead with the TG overview.
+    OPTIONAL_SECTIONS = [
+        "tilstandsgrader"
+    ]
+
+    # Every header the section extractor treats as a boundary.
+    RECOGNIZED_SECTIONS = REQUIRED_SECTIONS + OPTIONAL_SECTIONS
     
     # Forbidden words that indicate poor quality
     FORBIDDEN_WORDS = [
@@ -53,7 +64,9 @@ class QABaseline:
     QUANTIFICATION_RULES = {
         "measurements": {
             "required_units": ["m²", "cm", "mm", "%", "kr"],
-            "avoid_vague": ["litt", "noe", "mye", "stor", "liten"]
+            # "litt"/"noe" are covered by FORBIDDEN_WORDS; keep only the
+            # quantity-specific vague terms here to avoid double-flagging.
+            "avoid_vague": ["mye", "stor", "liten"]
         },
         "time_frames": {
             "required": ["umiddelbart", "innen", "måneder", "år"],
@@ -63,7 +76,7 @@ class QABaseline:
     
     # Structure requirements
     STRUCTURE_RULES = {
-        "min_section_length": 50,  # characters
+        "min_section_length": 30,  # characters (concise sections are fine)
         "max_section_length": 500,
         "total_min_length": 400,
         "total_max_length": 2000,
@@ -128,15 +141,15 @@ class QABaseline:
         text_lower = text.lower()
         
         for word in cls.FORBIDDEN_WORDS:
-            if word in text_lower:
-                # Find the position
-                start = text_lower.find(word)
+            pattern = re.compile(rf"\b{re.escape(word)}\b")
+            for match in pattern.finditer(text_lower):
+                start = match.start()
                 issues.append({
                     "word": word,
                     "span": f"{start}:{start + len(word)}",
                     "context": text[max(0, start-20):min(len(text), start+len(word)+20)]
                 })
-        
+
         return issues
     
     @classmethod
@@ -147,8 +160,9 @@ class QABaseline:
         
         # Check for vague quantifiers
         for vague in cls.QUANTIFICATION_RULES["measurements"]["avoid_vague"]:
-            if vague in text_lower:
-                start = text_lower.find(vague)
+            pattern = re.compile(rf"\b{re.escape(vague)}\b")
+            for match in pattern.finditer(text_lower):
+                start = match.start()
                 issues.append({
                     "type": "vague_quantifier",
                     "word": vague,

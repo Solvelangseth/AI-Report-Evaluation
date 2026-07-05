@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Inspections - Inspection Report QA{% endblock %}
+
+{% block content %}
+<div class="animate-slide-in">
+    <div class="mb-6 flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">Inspections</h1>
+            <p class="text-gray-600 mt-1">Captured sessions and their draft reports.</p>
+        </div>
+        <a href="/capture" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium">
+            <i class="fas fa-microphone mr-1"></i> New Inspection
+        </a>
+    </div>
+
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Captured</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Photos</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Draft</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200">
+                {% for s in sessions %}
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4">
+                        <a href="/session/{{ s.id }}" class="text-blue-600 hover:text-blue-800 font-medium">{{ s.title }}</a>
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-500">{{ s.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+                    <td class="px-6 py-4 text-sm text-gray-700">{{ s.media|length }}</td>
+                    <td class="px-6 py-4">
+                        {% if s.status in ("open", "processing", "failed") %}
+                        <span class="status-badge status-pending">{{ s.status }}</span>
+                        {% else %}
+                        <span class="status-badge status-{{ s.status }}">{{ s.status.replace("_", " ") }}</span>
+                        {% endif %}
+                        {% if s.is_signed %}
+                        <span class="ml-1 text-green-600" title="Signert av {{ s.signed_by }}"><i class="fas fa-signature"></i></span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4 text-sm">
+                        {% if s.report_id %}
+                        <a href="/report/{{ s.report_id }}" class="text-blue-600 hover:text-blue-800">Open draft</a>
+                        {% else %}
+                        <span class="text-gray-400">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="px-6 py-8 text-center text-gray-400">
+                    No inspections yet. <a href="/capture" class="text-blue-600">Start one</a>.
+                </td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -37,6 +37,16 @@
                     <option value="Generated">Generated</option>
                 </select>
             </div>
+
+            <div class="flex items-center space-x-2">
+                <label class="text-sm font-medium text-gray-700">Triage:</label>
+                <select id="triageFilter" onchange="filterReports()" class="border-gray-300 rounded-md text-sm">
+                    <option value="">All</option>
+                    <option value="needs_review">Needs review</option>
+                    <option value="auto_cleared">Auto-cleared</option>
+                    <option value="reviewed">Reviewed</option>
+                </select>
+            </div>
             
             <div class="flex items-center space-x-2 ml-auto">
                 <input type="text" id="searchInput" placeholder="Search topics..." 
@@ -67,6 +77,12 @@
                         Issues
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Triage
+                    </th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Review
+                    </th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Date
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -76,10 +92,11 @@
             </thead>
             <tbody class="bg-white divide-y divide-gray-200" id="reportsTableBody">
                 {% for report in reports %}
-                <tr class="report-row hover:bg-gray-50" 
-                    data-status="{{ report.qa_status }}" 
+                <tr class="report-row hover:bg-gray-50"
+                    data-status="{{ report.qa_status }}"
                     data-topic="{{ report.topic|lower }}"
-                    data-source="{{ report.source }}">
+                    data-source="{{ report.source }}"
+                    data-triage="{{ report.triage }}">
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                         #{{ report.id }}
                     </td>
@@ -120,6 +137,39 @@
                             </span>
                         {% endif %}
                     </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm">
+                        {% if report.triage == 'auto_cleared' %}
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800"
+                                  title="High-confidence clean — no review needed">
+                                <i class="fas fa-check-circle mr-1"></i> Auto-cleared
+                            </span>
+                        {% elif report.triage == 'reviewed' %}
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                <i class="fas fa-user-check mr-1"></i> Reviewed
+                            </span>
+                        {% elif report.triage == 'needs_review' %}
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800"
+                                  title="Confidence: {{ report.confidence|title }}">
+                                <i class="fas fa-flag mr-1"></i> Needs review
+                            </span>
+                        {% else %}
+                            <span class="text-gray-300">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm">
+                        {% if report.review_decision == 'overridden' %}
+                            <span class="text-yellow-700" title="Human corrected the verdict">
+                                <i class="fas fa-pen mr-1"></i>
+                                Overridden → {{ report.corrected_quality.replace('_', ' ').title() }}
+                            </span>
+                        {% elif report.review_decision == 'accepted' %}
+                            <span class="text-green-700"><i class="fas fa-check mr-1"></i> Accepted</span>
+                        {% elif report.reviewable %}
+                            <span class="text-gray-400"><i class="far fa-clock mr-1"></i> Pending review</span>
+                        {% else %}
+                            <span class="text-gray-300">—</span>
+                        {% endif %}
+                    </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {{ report.created_at }}
                     </td>
@@ -133,7 +183,7 @@
                 
                 {% if not reports %}
                 <tr>
-                    <td colspan="7" class="px-6 py-12 text-center text-gray-500">
+                    <td colspan="9" class="px-6 py-12 text-center text-gray-500">
                         <i class="fas fa-inbox text-4xl mb-4"></i>
                         <p>No reports found</p>
                         <a href="/upload" class="mt-4 text-blue-600 hover:text-blue-800 inline-block">
@@ -162,20 +212,23 @@
     function filterReports() {
         const statusFilter = document.getElementById('statusFilter').value.toLowerCase();
         const sourceFilter = document.getElementById('sourceFilter').value;
+        const triageFilter = document.getElementById('triageFilter').value;
         const searchFilter = document.getElementById('searchInput').value.toLowerCase();
         const rows = document.querySelectorAll('.report-row');
         let visibleCount = 0;
-        
+
         rows.forEach(row => {
             const status = row.dataset.status;
             const topic = row.dataset.topic;
             const source = row.dataset.source;
-            
+            const triage = row.dataset.triage;
+
             const matchesStatus = !statusFilter || status === statusFilter;
             const matchesSource = !sourceFilter || source === sourceFilter;
+            const matchesTriage = !triageFilter || triage === triageFilter;
             const matchesSearch = !searchFilter || topic.includes(searchFilter);
-            
-            if (matchesStatus && matchesSource && matchesSearch) {
+
+            if (matchesStatus && matchesSource && matchesTriage && matchesSearch) {
                 row.style.display = '';
                 visibleCount++;
             } else {
