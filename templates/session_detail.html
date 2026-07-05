@@ -94,9 +94,11 @@
                         <input x-model="f.part" placeholder="Bygningsdel" :readonly="signed"
                                class="flex-1 min-w-[140px] px-2 py-1 border border-gray-300 rounded-md text-sm font-medium">
                         <select x-model="f.severity" :disabled="signed" class="px-2 py-1 border border-gray-300 rounded-md text-sm">
-                            <template x-for="tg in ['TG0','TG1','TG2','TG3','TGiU']" :key="tg">
-                                <option :value="tg" x-text="tg"></option>
-                            </template>
+                            <option value="TG0">TG0</option>
+                            <option value="TG1">TG1</option>
+                            <option value="TG2">TG2</option>
+                            <option value="TG3">TG3</option>
+                            <option value="TGiU">TGiU</option>
                         </select>
                         <span x-show="f.photo_filename" class="text-xs text-gray-400 flex items-center">
                             <i class="fas fa-image mr-1"></i> evidence
