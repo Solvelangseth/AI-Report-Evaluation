@@ -15,6 +15,29 @@ spans highlighted in the report text.
 - Highlight detected issues inline in the rendered Markdown
 - Store reports, QA results, and issues in SQLite (the single source of truth)
 - Generate synthetic reports for testing
+- **Author** reports from a site visit: voice + categorized photos → vision-extracted
+  findings → drafted, QA-checked report → review/edit → sign-off → PDF
+
+## Screenshots
+
+**Dashboard** — quality overview, distribution, and the most recent issues found
+![Dashboard](docs/screenshots/dashboard.png)
+
+**New Inspection** — narrate the visit and add category-tagged, timestamped photos; the
+server transcribes, pairs, extracts findings, and drafts the report
+![New Inspection](docs/screenshots/capture.png)
+
+**Capture session** — review and edit the AI-extracted findings, then recompose the draft;
+once a certified inspector signs, the session is locked
+![Capture session](docs/screenshots/session_detail.png)
+
+**Authored report** — the composed six-section report with an auto-generated tilstandsgrad
+(TG) table, embedded evidence photos, sign-off, and a PDF export
+![Authored report](docs/screenshots/report_authored.png)
+
+**QA evaluation** — the rule + LLM verdict, confidence-gated triage, the per-issue sidebar,
+and the reviewer accept/override workflow
+![QA evaluation](docs/screenshots/report_highlighted.png)
 
 ## Architecture
 
